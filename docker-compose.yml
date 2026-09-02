@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  postgres_db:
+    image: postgres:16
+    container_name: maritima_postgres
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: adminpassword
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./postgres-init:/docker-entrypoint-initdb.d
+    restart: unless-stopped
+
+  redis_cache:
+    image: redis:7
+    container_name: maritima_redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
