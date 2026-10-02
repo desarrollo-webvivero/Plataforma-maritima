@@ -19,3 +19,16 @@ services:
     ports:
       - "6379:6379"
     restart: unless-stopped
+frontend:
+    build: 
+      context: ./frontend-maritimo
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      # Sincroniza tu código local con el contenedor para ver los cambios en tiempo real
+      - ./frontend-maritimo:/app
+      - /app/node_modules
+    environment:
+      # Ayuda a que los cambios al guardar se detecten rápido, especialmente en Windows
+      - CHOKIDAR_USEPOLLING=true
