@@ -1,16 +1,21 @@
 package com.maritima.logistica.model;
 
-import jakarta.persistence.DiscriminatorValue;
-import jakarta.persistence.Entity;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
+import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
 
-@Data
-@EqualsAndHashCode(callSuper = true)
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 @Entity
-@DiscriminatorValue("SECA")
+@Table(name = "carga_seca")
 public class CargaSeca extends Contenedor {
-    
-    // Propiedad específica de la carga seca
-    private Boolean requiereVentilacion;
+    @Column(name = "tipo_embalaje", length = 100)
+    private String tipoEmbalaje;
+
+    @Column(name = "es_apilable")
+    private Boolean esApilable;
 }

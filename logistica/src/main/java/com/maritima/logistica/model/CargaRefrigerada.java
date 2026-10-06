@@ -1,19 +1,22 @@
 package com.maritima.logistica.model;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.DiscriminatorValue;
-import jakarta.persistence.Entity;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
+import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import java.math.BigDecimal;
 
-@Data
-@EqualsAndHashCode(callSuper = true)
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 @Entity
-@DiscriminatorValue("REFRIGERADA")
+@Table(name = "carga_refrigerada")
 public class CargaRefrigerada extends Contenedor {
-    
-    @Column(nullable = false)
-    private Double temperaturaRequerida;
-    
-    private Boolean conectadoARedElectrica;
+    @Column(name = "temperatura_requerida", precision = 5, scale = 2)
+    private BigDecimal temperaturaRequerida;
+
+    @Column(name = "requiere_ventilacion")
+    private Boolean requiereVentilacion;
 }

@@ -13,44 +13,35 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
-@Table(name = "licitaciones")
-public class Licitacion {
+@Table(name = "pujas")
+public class Puja {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "licitacion_id")
+    @Column(name = "puja_id")
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "buque_id", nullable = false)
-    private Buque buque;
+    @JoinColumn(name = "licitacion_id", nullable = false)
+    private Licitacion licitacion;
 
-    @Column(nullable = false, length = 255)
-    private String ruta;
+    @Column(name = "usuario_id", nullable = false)
+    private Integer usuarioId;
 
-    @Column(name = "puerto_origen", nullable = false, length = 100)
-    private String puertoOrigen;
-
-    @Column(name = "puerto_destino", nullable = false, length = 100)
-    private String puertoDestino;
+    @Column(nullable = false, precision = 12, scale = 2)
+    private BigDecimal monto;
 
     @Column(nullable = false, length = 50)
     private String estado;
 
-    @Column(name = "precio_base", nullable = false, precision = 12, scale = 2)
-    private BigDecimal precioBase;
-
-    @Column(name = "fecha_creacion", updatable = false)
-    private LocalDateTime fechaCreacion;
+    @Column(name = "fecha_puja", updatable = false)
+    private LocalDateTime fechaPuja;
 
     @Column(name = "fecha_actualizacion")
     private LocalDateTime fechaActualizacion;
 
-    @Column(name = "actualizado_por")
-    private Integer actualizadoPor;
-
     @PrePersist
     protected void onCreate() {
-        this.fechaCreacion = LocalDateTime.now();
+        this.fechaPuja = LocalDateTime.now();
         this.fechaActualizacion = LocalDateTime.now();
     }
 
