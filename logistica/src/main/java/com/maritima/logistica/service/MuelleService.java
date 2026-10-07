@@ -1,5 +1,6 @@
 package com.maritima.logistica.service;
 
+import com.maritima.logistica.client.AduanaClient;
 import com.maritima.logistica.model.Contenedor;
 import com.maritima.logistica.model.HistorialContenedor;
 import com.maritima.logistica.repository.ContenedorRepository;
@@ -14,13 +15,16 @@ public class MuelleService {
     private final MuelleRepository muelleRepository;
     private final ContenedorRepository contenedorRepository;
     private final HistorialContenedorRepository historialRepository;
+    private final AduanaClient aduanaClient;
 
     public MuelleService(MuelleRepository muelleRepository, 
                          ContenedorRepository contenedorRepository, 
-                         HistorialContenedorRepository historialRepository) {
+                         HistorialContenedorRepository historialRepository,
+                         AduanaClient aduanaClient) {
         this.muelleRepository = muelleRepository;
         this.contenedorRepository = contenedorRepository;
         this.historialRepository = historialRepository;
+        this.aduanaClient = aduanaClient;
     }
 
     public boolean validarDisponibilidad(Long muelleId) {
@@ -31,6 +35,7 @@ public class MuelleService {
 
     @Transactional
     public Contenedor procesarGateOut(Long contenedorId, Integer usuarioId) {
+        // 1. Verificación en Logística
         Contenedor contenedor = contenedorRepository.findById(contenedorId)
                 .orElseThrow(() -> new RuntimeException("Contenedor no encontrado en el sistema."));
 
@@ -38,16 +43,21 @@ public class MuelleService {
             throw new RuntimeException("Operación denegada: El contenedor ya registró su salida del puerto.");
         }
 
+        // 2. Validación Cruzada con Aduanas (Llamada HTTP síncrona)
+        if (aduanaClient.tieneBloqueoActivo(contenedorId)) {
+            throw new RuntimeException("ALERTA LEGAL: Operación denegada. El contenedor posee una retención aduanera activa.");
+        }
+
         String estadoAnterior = contenedor.getEstado();
         Long muelleAnterior = contenedor.getMuelle() != null ? contenedor.getMuelle().getId() : null;
 
-        // 1. Actualizar estado físico del contenedor
+        // 3. Actualizar estado físico del contenedor
         contenedor.setEstado("GATE_OUT");
-        contenedor.setMuelle(null); // Libera el espacio físico del muelle
+        contenedor.setMuelle(null); 
         contenedor.setActualizadoPor(usuarioId);
         contenedorRepository.save(contenedor);
 
-        // 2. Registrar auditoría inmutable
+        // 4. Registrar auditoría inmutable
         HistorialContenedor historial = new HistorialContenedor();
         historial.setContenedor(contenedor);
         historial.setEstadoAnterior(estadoAnterior);
@@ -56,8 +66,6 @@ public class MuelleService {
         historial.setMuelleIdNuevo(null);
         historial.setCambiadoPor(usuarioId);
         historialRepository.save(historial);
-
-        // Nota Sprint 3: Aquí inyectaremos el RestClient para validar con Aduanas antes de guardar.
         
         return contenedor;
     }
