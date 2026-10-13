@@ -1,33 +1,81 @@
 package com.maritima.aduana.model;
 
 import jakarta.persistence.*;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import lombok.AllArgsConstructor;
 import java.time.LocalDateTime;
 
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
 @Entity
-@Table(name = "bloqueos_aduaneros")
+@Table(name = "bloqueos_aduaneros", indexes = {
+    // Creamos un índice para acelerar las búsquedas por el código del contenedor
+    @Index(name = "idx_bloqueo_contenedor", columnList = "idContenedor"),
+    // Creamos un índice para agilizar los reportes por estado (RETENIDO / LIBERADO)
+    @Index(name = "idx_bloqueo_estado", columnList = "estado")
+})
 public class BloqueoAduanero {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // Guardamos solo el código del contenedor, no la entidad completa, 
-    // para mantener las bases de datos desacopladas.
-    @Column(nullable = false, unique = true, length = 20)
-    private String codigoContenedor;
+    @Column(nullable = false, unique = true)
+    private String idContenedor;
 
     @Column(nullable = false)
-    private String motivoAlerta; // Ej: Documentación falsa, Carga no declarada
+    private String motivo;
 
     @Column(nullable = false)
-    private String estado; // Ej: ACTIVO, LIBERADO
+    private String estado; 
 
     private LocalDateTime fechaBloqueo;
-    private String agenteAduanal;
+
+    public BloqueoAduanero() {
+    }
+
+    public BloqueoAduanero(Long id, String idContenedor, String motivo, String estado, LocalDateTime fechaBloqueo) {
+        this.id = id;
+        this.idContenedor = idContenedor;
+        this.motivo = motivo;
+        this.estado = estado;
+        this.fechaBloqueo = fechaBloqueo;
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getIdContenedor() {
+        return idContenedor;
+    }
+
+    public void setIdContenedor(String idContenedor) {
+        this.idContenedor = idContenedor;
+    }
+
+    public String getMotivo() {
+        return motivo;
+    }
+
+    public void setMotivo(String motivo) {
+        this.motivo = motivo;
+    }
+
+    public String getEstado() {
+        return estado;
+    }
+
+    public void setEstado(String estado) {
+        this.estado = estado;
+    }
+
+    public LocalDateTime getFechaBloqueo() {
+        return fechaBloqueo;
+    }
+
+    public void setFechaBloqueo(LocalDateTime fechaBloqueo) {
+        this.fechaBloqueo = fechaBloqueo;
+    }
 }
+
