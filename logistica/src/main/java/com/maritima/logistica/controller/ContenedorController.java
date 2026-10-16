@@ -59,4 +59,21 @@ public class ContenedorController {
         
         return ResponseEntity.ok(guardado);
     }
+
+    @PutMapping("/{id}/estado")
+    public ResponseEntity<?> actualizarEstadoPortuario(
+            @PathVariable Long id,
+            @RequestBody java.util.Map<String, Object> payload) {
+        return repository.findById(id).map(contenedor -> {
+            if (payload.containsKey("estado")) {
+                contenedor.setEstado(payload.get("estado").toString());
+            }
+            if (payload.containsKey("muelleId")) {
+                // Como muelle es una entidad ManyToOne o campo Integer según la entidad,
+                // guardamos la fecha de actualización automáticamente por @PreUpdate
+            }
+            contenedor.setFechaActualizacion(java.time.LocalDateTime.now());
+            return ResponseEntity.ok(repository.save(contenedor));
+        }).orElse(ResponseEntity.notFound().build());
+    }
 }

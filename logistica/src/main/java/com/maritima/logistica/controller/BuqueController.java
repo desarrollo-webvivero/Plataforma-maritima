@@ -58,7 +58,16 @@ public class BuqueController {
     @PutMapping("/{id}/estado")
     public ResponseEntity<Buque> cambiarEstado(@PathVariable Long id, @RequestBody Map<String, String> payload) {
         return buqueRepository.findById(id).map(buque -> {
-            buque.setEstado(payload.get("estado"));
+            // Genera la fecha actual en la zona de Guatemala
+            java.time.LocalDateTime now = java.time.LocalDateTime.now(java.time.ZoneId.of("America/Guatemala"));
+            java.time.format.DateTimeFormatter formatter = java.time.format.DateTimeFormatter.ofPattern("dd/MM/yy HH:mm");
+            
+            String estadoBase = payload.get("estado"); // Recibe "Atracado" o "En Ruta"
+            String estadoConFecha = estadoBase != null && estadoBase.equals("Atracado") 
+                ? "Atracado el " + now.format(formatter) 
+                : "Zarpó el " + now.format(formatter);
+            
+            buque.setEstado(estadoConFecha);
             return ResponseEntity.ok(buqueRepository.save(buque));
         }).orElse(ResponseEntity.notFound().build());
     }

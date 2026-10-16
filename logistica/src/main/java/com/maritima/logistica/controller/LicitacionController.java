@@ -2,6 +2,7 @@ package com.maritima.logistica.controller;
 
 import com.maritima.logistica.model.Licitacion;
 import com.maritima.logistica.repository.LicitacionRepository;
+import com.maritima.logistica.repository.BuqueRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -16,6 +17,9 @@ public class LicitacionController {
 
     @Autowired
     private LicitacionRepository licitacionRepository;
+
+    @Autowired
+    private BuqueRepository buqueRepository;
 
     // 1. Listar todas las subastas (Lo usan Naviera y Exportador)
     @GetMapping
@@ -60,6 +64,20 @@ public class LicitacionController {
     public ResponseEntity<Licitacion> cerrarSubasta(@PathVariable Long id) {
         return licitacionRepository.findById(id).map(lic -> {
             lic.setEstado("ADJUDICADA");
+            
+            // 1. Descontar la capacidad del buque
+            if (lic.getBuque() != null) {
+                buqueRepository.findAll().stream()
+                    .filter(b -> b.getNombre().equalsIgnoreCase(lic.getBuque()))
+                    .findFirst()
+                    .ifPresent(buque -> {
+                        int capacidadActual = buque.getTeuDisponibles() != null ? buque.getTeuDisponibles() : 0;
+                        int aDescontar = lic.getEspaciosTeu() != null ? lic.getEspaciosTeu() : 0;
+                        int nuevaCapacidad = Math.max(0, capacidadActual - aDescontar);
+                        buque.setTeuDisponibles(nuevaCapacidad);
+                        buqueRepository.save(buque);
+                    });
+            }
             return ResponseEntity.ok(licitacionRepository.save(lic));
         }).orElse(ResponseEntity.notFound().build());
     }

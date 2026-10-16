@@ -15,6 +15,8 @@ export default function DashboardNaviera() {
   const [isBuqueModalOpen, setIsBuqueModalOpen] = useState(false);
   const [isSubastaModalOpen, setIsSubastaModalOpen] = useState(false);
   const [successMsg, setSuccessMsg] = useState(null);
+  const [licitacionesOcultas, setLicitacionesOcultas] = useState([]);
+  const [subastaDetalle, setSubastaDetalle] = useState(null);
 
   // Formularios
   const [nuevoBuque, setNuevoBuque] = useState({
@@ -152,13 +154,17 @@ export default function DashboardNaviera() {
 
   // Cambiar estado de un buque (Atracado <-> En Ruta)
   const toggleEstadoBuque = async (buque) => {
-    const nuevoEstado = buque.estado === 'Atracado' ? 'En Ruta' : 'Atracado';
+    // Determinamos el nuevo estado base
+    const esAtracado = buque.estado?.includes('Atracado');
+    const nuevoEstado = esAtracado ? 'En Ruta' : 'Atracado';
+    
     try {
       await logisticaApi.put(`/buques/${buque.id}/estado`, { estado: nuevoEstado });
-    } catch {
-      // Actualización optimista en interfaz
+      // Forzamos la actualización para traer la fecha formateada desde el backend
+      cargarDatosNaviera(); 
+    } catch (error) {
+       console.error("Error cambiando estado:", error);
     }
-    setBuques(buques.map(b => b.id === buque.id ? { ...b, estado: nuevoEstado } : b));
   };
 
   // Cerrar, adjudicar subasta y asignarle el contenedor con el precio exacto al Exportador
@@ -183,6 +189,13 @@ export default function DashboardNaviera() {
       setLicitaciones(licitaciones.map(l => 
         l.id === licitacion.id ? { ...l, estado: 'ADJUDICADA' } : l
       ));
+
+      setBuques(buques.map(b => {
+        if (b.nombre === licitacion.buque) {
+           return { ...b, teuDisponibles: Math.max(0, b.teuDisponibles - licitacion.espaciosTeu) };
+        }
+        return b;
+      }));
 
       window.dispatchEvent(new Event('datosActualizados'));
 
@@ -382,11 +395,11 @@ export default function DashboardNaviera() {
                     </td>
                     <td className="py-4 px-6">
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
-                        buque.estado === 'Atracado'
+                        buque.estado?.includes('Atracado')
                           ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                           : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
                       }`}>
-                        {buque.estado === 'Atracado' ? <Anchor size={12} /> : <Navigation size={12} />}
+                        {buque.estado?.includes('Atracado') ? <Anchor size={12} /> : <Navigation size={12} />}
                         {buque.estado || 'En Ruta'}
                       </span>
                     </td>
@@ -395,7 +408,7 @@ export default function DashboardNaviera() {
                         onClick={() => toggleEstadoBuque(buque)}
                         className="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
                       >
-                        {buque.estado === 'Atracado' ? 'Zarpar (En Ruta)' : 'Autorizar Atraque'}
+                        {buque.estado?.includes('Atracado') ? 'Zarpar (En Ruta)' : 'Autorizar Atraque'}
                       </button>
                     </td>
                   </tr>
@@ -409,10 +422,12 @@ export default function DashboardNaviera() {
       {/* CONTENIDO PESTAÑA 2: GESTIÓN DE LICITACIONES Y SUBASTAS */}
       {activeTab === 'licitaciones' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {licitaciones.map((lic) => (
+          {licitaciones
+            .filter(lic => !licitacionesOcultas.includes(lic.id))
+            .map((lic) => (
             <div 
               key={lic.id} 
-              className="bg-white dark:bg-slate-800/90 p-5 rounded-xl border border-slate-200 dark:border-slate-700/80 shadow-sm flex flex-col justify-between"
+              className="bg-white dark:bg-slate-800/90 p-5 rounded-xl border border-slate-200 dark:border-slate-700/80 shadow-sm flex flex-col justify-between group"
             >
               <div>
                 <div className="flex items-center justify-between mb-3">
@@ -435,7 +450,7 @@ export default function DashboardNaviera() {
                 <p className="text-xs text-slate-400 mb-4">{lic.ruta || 'Ruta Comercial Internacional'}</p>
               </div>
 
-              <div className="pt-4 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between">
+              <div className="pt-4 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between relative">
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
                     Mejor Puja Actual {lic.mejorPostor ? `(${lic.mejorPostor})` : ''}
@@ -453,9 +468,29 @@ export default function DashboardNaviera() {
                     Adjudicar y Cerrar
                   </button>
                 ) : (
-                  <span className="text-xs font-bold text-slate-500 flex items-center gap-1">
-                    <CheckCircle2 size={14} className="text-emerald-500" /> Finalizada
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-500 flex items-center gap-1">
+                      <CheckCircle2 size={14} className="text-emerald-500" /> Finalizada
+                    </span>
+                    
+                    {/* Botón de Detalles (Ojo) */}
+                    <button 
+                      onClick={() => setSubastaDetalle(lic)}
+                      className="p-1.5 text-slate-400 hover:text-blue-500 bg-slate-100 dark:bg-slate-700/50 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-md transition-colors cursor-pointer"
+                      title="Ver Detalles de Adjudicación"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </button>
+
+                    {/* Botón de Ocultar/Eliminar Visual (Basurero/X) */}
+                    <button 
+                      onClick={() => setLicitacionesOcultas([...licitacionesOcultas, lic.id])}
+                      className="p-1.5 text-slate-400 hover:text-red-500 bg-slate-100 dark:bg-slate-700/50 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-md transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
+                      title="Ocultar del Tablero"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -587,16 +622,23 @@ export default function DashboardNaviera() {
 
             <form onSubmit={handleCrearSubasta} className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-400 mb-1">Buque Ofertante</label>
+                <label className="block text-xs font-bold uppercase text-slate-400 mb-1">Buque Ofertante (Solo en Muelle)</label>
                 <select
                   value={nuevaSubasta.buqueNombre}
                   onChange={(e) => setNuevaSubasta({ ...nuevaSubasta, buqueNombre: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-white text-sm"
                 >
-                  {buques.map((b) => (
-                    <option key={b.id} value={b.nombre}>{b.nombre} ({b.teuDisponibles} TEUs libres)</option>
+                  {buques
+                    .filter(b => b.estado && b.estado.includes('Atracado'))
+                    .map((b) => (
+                    <option key={b.id} value={b.nombre}>
+                      {b.nombre} ({b.teuDisponibles} TEUs libres)
+                    </option>
                   ))}
                 </select>
+                {buques.filter(b => b.estado && b.estado.includes('Atracado')).length === 0 && (
+                  <p className="text-xs text-amber-500 mt-2 font-medium">⚠️ Todos los buques están en ruta. Para subastar TEUs, autoriza primero el atraque de un buque en la pestaña de Flota.</p>
+                )}
               </div>
 
               <div>
@@ -676,6 +718,47 @@ export default function DashboardNaviera() {
             >
               Entendido
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE DETALLES DE ADJUDICACIÓN */}
+      {subastaDetalle && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-sm overflow-hidden border border-slate-200 dark:border-slate-700">
+            <div className="flex justify-between items-center p-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+              <h3 className="font-bold flex items-center gap-2 text-slate-800 dark:text-white">
+                <Gavel size={18} className="text-amber-500" />
+                Resumen de Licitación #{subastaDetalle.id}
+              </h3>
+              <button onClick={() => setSubastaDetalle(null)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors cursor-pointer"><X size={20}/></button>
+            </div>
+            
+            <div className="p-5 space-y-4 text-sm">
+              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3">
+                <span className="block text-[10px] uppercase font-bold text-emerald-600 dark:text-emerald-400 mb-1">Exportador Ganador</span>
+                <span className="font-mono text-lg font-black text-slate-800 dark:text-white">{subastaDetalle.mejorPostor || 'EXP-001'}</span>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <span className="block text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 mb-1">Buque Ofertante</span>
+                  <span className="font-medium text-slate-800 dark:text-slate-200">{subastaDetalle.buque}</span>
+                </div>
+                <div>
+                  <span className="block text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 mb-1">Volumen Adjudicado</span>
+                  <span className="font-medium text-slate-800 dark:text-slate-200">{subastaDetalle.espaciosTeu} TEUs</span>
+                </div>
+                <div className="col-span-2">
+                  <span className="block text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 mb-1">Ruta Comercial</span>
+                  <span className="font-medium text-slate-800 dark:text-slate-200">{subastaDetalle.ruta}</span>
+                </div>
+                <div className="col-span-2 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg flex justify-between items-center">
+                  <span className="text-xs font-bold text-slate-500">Monto Final Pagado:</span>
+                  <span className="text-lg font-black text-emerald-600 dark:text-emerald-400">${Number(subastaDetalle.pujaActual || subastaDetalle.precioBase).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

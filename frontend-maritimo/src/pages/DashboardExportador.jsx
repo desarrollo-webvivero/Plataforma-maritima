@@ -83,7 +83,11 @@ export default function DashboardExportador() {
           logisticaApi.get('/licitaciones')
         ]);
 
-        setCargas(responseContenedores.data);
+        const cargasNormalizadas = responseContenedores.data.map(c => ({
+          ...c,
+          retenido: c.retenido === true || (c.estado && c.estado.toLowerCase().includes('retenid'))
+        }));
+        setCargas(cargasNormalizadas);
         
         try {
             setSaldo(responseSaldo.data.saldoDisponible);
