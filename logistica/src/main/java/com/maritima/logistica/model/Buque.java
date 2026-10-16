@@ -1,40 +1,43 @@
 package com.maritima.logistica.model;
 
 import jakarta.persistence.*;
-import lombok.Getter;
-import lombok.Setter;
-import lombok.NoArgsConstructor;
-import lombok.AllArgsConstructor;
-import java.time.LocalDateTime;
-import java.util.List;
 
-@Getter
-@Setter
-@NoArgsConstructor
-@AllArgsConstructor
 @Entity
 @Table(name = "buques")
 public class Buque {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "buque_id")
     private Long id;
 
-    @Column(nullable = false, length = 100)
     private String nombre;
+    private String imo;
+    private Integer capacidadTeu;
+    private Integer teuDisponibles;
+    private String rutaActual;
+    private String estado; // "Atracado" o "En Ruta"
 
-    @Column(nullable = false, unique = true, length = 50)
-    private String matricula;
+    public Buque() {}
 
-    @Column(name = "capacidad_maxima_teus", nullable = false)
-    private Integer capacidadMaximaTeus;
+    // Getters y Setters
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
 
-    @Column(name = "fecha_creacion", updatable = false)
-    private LocalDateTime fechaCreacion;
+    public String getNombre() { return nombre; }
+    public void setNombre(String nombre) { this.nombre = nombre; }
 
-    @OneToMany(mappedBy = "buque", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    private List<Contenedor> contenedores;
+    public String getImo() { return imo; }
+    public void setImo(String imo) { this.imo = imo; }
 
-    @PrePersist
-    protected void onCreate() { this.fechaCreacion = LocalDateTime.now(); }
+    public Integer getCapacidadTeu() { return capacidadTeu; }
+    public void setCapacidadTeu(Integer capacidadTeu) { this.capacidadTeu = capacidadTeu; }
+
+    public Integer getTeuDisponibles() { return teuDisponibles; }
+    public void setTeuDisponibles(Integer teuDisponibles) { this.teuDisponibles = teuDisponibles; }
+
+    public String getRutaActual() { return rutaActual; }
+    public void setRutaActual(String rutaActual) { this.rutaActual = rutaActual; }
+
+    public String getEstado() { return estado; }
+    public void setEstado(String estado) { this.estado = estado; }
 }

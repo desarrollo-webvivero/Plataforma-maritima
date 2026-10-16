@@ -1,5 +1,6 @@
 import { Wallet, Lock, Plus, ArrowUpRight, ArrowDownRight, History, Search, CreditCard, X } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { logisticaApi } from '../services/api';
 
 export default function Billetera() {
   const [busqueda, setBusqueda] = useState('');
@@ -7,35 +8,60 @@ export default function Billetera() {
   const [montoRecarga, setMontoRecarga] = useState('');
 
   // Estado para simular la lista de transacciones y el saldo dinámico
-  const [saldo, setSaldo] = useState(15000);
+  const [saldo, setSaldoTokens] = useState(0);
   const [transacciones, setTransacciones] = useState([
     { id: 'TX-9982-A', fecha: '11 Oct 2026, 10:45 AM', concepto: 'Recarga de Billetera (T. Crédito)', estado: 'Completado', monto: '+5,000', tipo: 'ingreso' },
     { id: 'TX-8473-B', fecha: '10 Oct 2026, 14:30 PM', concepto: 'Pago Adjudicación TEUs (MSC GÜLSÜN)', estado: 'Completado', monto: '-1,200', tipo: 'egreso' },
     { id: 'TX-8472-B', fecha: '10 Oct 2026, 09:15 AM', concepto: 'Retención por Puja Activa (EVER GIVEN)', estado: 'Bloqueado', monto: '-2,500', tipo: 'bloqueado' }
   ]);
 
-  const handleRecargar = (e) => {
+  // Consultar saldo real al backend al cargar la página
+  useEffect(() => {
+    logisticaApi.get('/billetera/saldo')
+      .then(response => {
+        // Aquí usamos la clave exacta que vimos en el JSON de red:
+        setSaldoTokens(response.data.saldoDisponible);
+      })
+      .catch(error => console.error("Error al obtener saldo:", error));
+  }, []);
+
+  const handleRecargar = async (e) => {
     e.preventDefault();
-    const tokens = parseInt(montoRecarga);
-    if (!tokens || tokens <= 0) return;
+    const montoNumerico = parseFloat(montoRecarga);
+    if (!montoNumerico || montoNumerico <= 0) return;
 
-    // Actualizamos el saldo
-    setSaldo(prev => prev + tokens);
+    try {
+      // 1. Llamada REAL al backend en Java
+      const response = await logisticaApi.post('/billetera/recargar', {
+        monto: montoNumerico
+      });
 
-    // Agregamos la nueva transacción al inicio
-    const nuevaTx = {
-      id: `TX-${Math.floor(1000 + Math.random() * 9000)}-A`,
-      fecha: '11 Oct 2026, Actualizado',
-      concepto: 'Recarga de Billetera (Tarjeta / API Bancaria)',
-      estado: 'Completado',
-      monto: `+${tokens.toLocaleString()}`,
-      tipo: 'ingreso'
-    };
+      // 2. Actualizamos la pantalla con el saldo real que nos devuelve PostgreSQL
+      setSaldoTokens(response.data.saldoDisponible);
 
-    setTransacciones([nuevaTx, ...transacciones]);
-    setIsModalOpen(false);
-    setMontoRecarga('');
-    alert(`¡Recarga exitosa de ${tokens.toLocaleString()} Tokens!`);
+      // 3. Agregamos el registro visual en las transacciones
+      const nuevaTx = {
+        id: `TX-${Math.floor(1000 + Math.random() * 9000)}-A`,
+        fecha: 'Hoy, Actualizado',
+        concepto: 'Recarga de Billetera (Tarjeta / API Bancaria)',
+        estado: 'Completado',
+        monto: `+${montoNumerico.toLocaleString('en-US')}`,
+        tipo: 'ingreso'
+      };
+
+      setTransacciones([nuevaTx, ...transacciones]);
+      setIsModalOpen(false);
+      setMontoRecarga('');
+
+      // Disparamos evento global para actualizar barras de navegación o headers si existen
+      window.dispatchEvent(new Event('saldoActualizado'));
+
+      alert(`¡Recarga exitosa de ${montoNumerico.toLocaleString('en-US')} Tokens!`);
+
+    } catch (error) {
+      console.error("Error al recargar en el servidor:", error);
+      alert("No se pudo conectar con el servidor para procesar la recarga.");
+    }
   };
 
   return (

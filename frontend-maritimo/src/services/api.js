@@ -1,15 +1,31 @@
 import axios from 'axios';
 
-// Instancia base para Logística
+// Creamos la instancia centralizada para el microservicio de Logística
 export const logisticaApi = axios.create({
-    baseURL: '/api/logistica',
-    headers: { 'Content-Type': 'application/json' }
+    // Usa la variable de entorno, o cae por defecto al puerto 8081 si no existe
+    baseURL: import.meta.env.VITE_API_LOGISTICA || 'http://localhost:8081',
+    
+    // CRÍTICO: Obliga a Axios a enviar siempre cookies/sesiones si existieran
+    withCredentials: true,
+    
+    // Opcional: headers por defecto que tu backend siempre esperará
+    headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    }
 });
 
-// Instancia base para Aduanas
-export const aduanaApi = axios.create({
-    baseURL: '/api/aduana',
-    headers: { 'Content-Type': 'application/json' }
-});
+// Interceptor (Opcional pero recomendado): Para atrapar errores globales
+logisticaApi.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        if (error.response?.status === 500) {
+            console.error("Error interno del servidor en Logística");
+        }
+        return Promise.reject(error);
+    }
+);
 
-// Ejemplo: logisticaApi.get('/buques') internamente llamará a http://localhost:8080/api/logistica/buques
+// Si más adelante creas el microservicio de Aduana en el puerto 8082, 
+// simplemente agregas otra instancia aquí:
+// export const aduanaApi = axios.create({ ... baseURL: 'http://localhost:8082' });

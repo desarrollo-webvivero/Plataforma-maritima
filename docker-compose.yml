@@ -19,8 +19,9 @@ services:
     ports:
       - "6379:6379"
     restart: unless-stopped
-frontend:
-    build: 
+
+  frontend:
+    build:
       context: ./frontend-maritimo
       dockerfile: Dockerfile.dev
     ports:
@@ -32,3 +33,27 @@ frontend:
     environment:
       # Ayuda a que los cambios al guardar se detecten rápido, especialmente en Windows
       - CHOKIDAR_USEPOLLING=true
+
+  logistica:
+    build:
+      context: ./logistica
+    container_name: maritima_logistica
+    ports:
+      - "8081:8080"
+    depends_on:
+      - postgres_db
+      - redis_cache
+  aduana:
+    build: ./aduana
+    ports:
+      - "8082:8080"
+    depends_on:
+      - postgres_db
+      - redis_cache
+    environment:
+      # Conecta Java directamente a los otros contenedores de Docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres_db:5432/logistica_db
+      - SPRING_DATASOURCE_USERNAME=admin
+      - SPRING_DATASOURCE_PASSWORD=adminpassword
+      - SPRING_REDIS_HOST=redis_cache
+      - SPRING_REDIS_PORT=6379

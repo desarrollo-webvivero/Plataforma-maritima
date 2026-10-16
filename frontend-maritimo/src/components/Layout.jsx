@@ -1,6 +1,7 @@
 import { Link, Outlet, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { Anchor, Bell, User, Search, LogOut, Wallet, Sun, Moon } from 'lucide-react';
+import { logisticaApi } from '../services/api';
 
 export default function Layout() {
   const navigate = useNavigate();
@@ -10,12 +11,25 @@ export default function Layout() {
     return localStorage.getItem('theme') === 'dark';
   });
 
-  // 2. Estado para el rol
+  // 2. Estado para el rol y saldo global
   const [rol, setRol] = useState('');
+  const [saldoGlobal, setSaldoGlobal] = useState(14500);
 
-  // 3. Efecto para cargar el rol al iniciar la pantalla
+  const cargarSaldoHeader = async () => {
+    try {
+      const res = await logisticaApi.get('/billetera/saldo');
+      setSaldoGlobal(res.data.saldoDisponible);
+    } catch (err) {
+      console.error("Error leyendo saldo en header:", err);
+    }
+  };
+
+  // 3. Efecto para cargar el rol y saldo al iniciar la pantalla
   useEffect(() => {
     setRol(localStorage.getItem('rolUsuario') || 'EXPORTADOR');
+    cargarSaldoHeader();
+    window.addEventListener('saldoActualizado', cargarSaldoHeader);
+    return () => window.removeEventListener('saldoActualizado', cargarSaldoHeader);
   }, []);
 
   // 4. Efecto que aplica o quita la clase 'dark' cada vez que tocas el botón
@@ -58,13 +72,20 @@ export default function Layout() {
           
           {/* Saldo de Billetera */}
           {rol === 'EXPORTADOR' && (
-            <div className="hidden sm:flex items-center gap-2 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-1.5 rounded-lg border border-emerald-100 dark:border-emerald-800/50 mr-2 shadow-sm transition-colors">
-              <Wallet size={18} className="text-emerald-600 dark:text-emerald-400" />
-              <div className="flex flex-col text-left">
-                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase leading-none mb-0.5">Saldo Disp.</span>
-                <span className="text-sm font-black text-slate-800 dark:text-slate-200 leading-none">$14,500.00</span>
+            <button
+              type="button"
+              onClick={() => navigate('/dashboard/billetera')}
+              title="Ir a Billetera Virtual"
+              className="hidden sm:flex items-center gap-2 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 px-3 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800 transition-colors cursor-pointer text-left mr-2 shadow-sm"
+            >
+              <Wallet size={18} />
+              <div className="flex flex-col">
+                <span className="text-[10px] font-bold uppercase tracking-wider leading-none mb-0.5">Saldo Disp.</span>
+                <span className="text-sm font-black text-slate-800 dark:text-slate-200 leading-none">
+                  ${Number(saldoGlobal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
               </div>
-            </div>
+            </button>
           )}
 
           {/* Botón Interruptor de Modo Oscuro */}
