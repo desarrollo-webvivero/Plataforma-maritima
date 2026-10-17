@@ -1,24 +1,48 @@
-// src/pages/Dashboard.jsx
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import DashboardExportador from './DashboardExportador';
-import DashboardAduanas from './DashboardAduanas';
-import DashboardPuerto from './DashboardPuerto';
 import DashboardNaviera from './DashboardNaviera';
+import DashboardPuerto from './DashboardPuerto';
+import DashboardAduanas from './DashboardAduanas';
+import DashboardAdmin from './DashboardAdmin';
 
 export default function Dashboard() {
-  const [rol, setRol] = useState('');
+  const location = useLocation();
+
+  const obtenerRolActual = () => {
+    if (location.state?.rol) return location.state.rol.toUpperCase();
+    const guardado =
+      localStorage.getItem('userRole') ||
+      localStorage.getItem('rol') ||
+      localStorage.getItem('role') ||
+      'EXPORTADOR';
+    return guardado.toUpperCase();
+  };
+
+  const [rolActivo, setRolActivo] = useState(obtenerRolActual);
 
   useEffect(() => {
-    // Lee la sesión iniciada
-    const rolGuardado = localStorage.getItem('rolUsuario') || 'EXPORTADOR';
-    setRol(rolGuardado);
-  }, []);
+    setRolActivo(obtenerRolActual());
 
-  // Retorna el archivo completo según el rol
-  if (rol === 'EXPORTADOR') return <DashboardExportador />;
-  if (rol === 'ADUANAS') return <DashboardAduanas />;
-  if (rol === 'PUERTO') return <DashboardPuerto />;
-  if (rol === 'NAVIERA') return <DashboardNaviera />;
+    const sincronizarRol = () => setRolActivo(obtenerRolActual());
+    window.addEventListener('storage', sincronizarRol);
+    return () => window.removeEventListener('storage', sincronizarRol);
+  }, [location]);
 
-  return <DashboardExportador />; // Vista por defecto
+  switch (rolActivo) {
+    case 'NAVIERA':
+      return <DashboardNaviera />;
+    case 'PUERTO':
+    case 'PORTUARIO':
+      return <DashboardPuerto />;
+    case 'ADUANAS':
+    case 'ADUANA':
+      return <DashboardAduanas />;
+    case 'ADMIN':
+    case 'ADMINISTRADOR':
+      return <DashboardAdmin />;
+    case 'EXPORTADOR':
+    default:
+      return <DashboardExportador />;
+  }
 }
