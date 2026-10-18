@@ -15,6 +15,7 @@ public class Buque {
     private Integer capacidadTeu;
     private Integer teuDisponibles;
     private String rutaActual;
+    private String matricula;
     private String estado; // "Atracado" o "En Ruta"
 
     public Buque() {}
@@ -37,6 +38,9 @@ public class Buque {
 
     public String getRutaActual() { return rutaActual; }
     public void setRutaActual(String rutaActual) { this.rutaActual = rutaActual; }
+
+    public String getMatricula() { return matricula; }
+    public void setMatricula(String matricula) { this.matricula = matricula; }
 
     public String getEstado() { return estado; }
     public void setEstado(String estado) { this.estado = estado; }

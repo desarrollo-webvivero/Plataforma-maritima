@@ -21,9 +21,11 @@ public class BuqueController {
         List<Buque> lista = buqueRepository.findAll();
         // Si la base de datos está vacía, sembramos los 3 buques iniciales automáticamente
         if (lista.isEmpty()) {
+           
             Buque b1 = new Buque();
             b1.setNombre("MSC GÜLSÜN");
             b1.setImo("IMO-9839430");
+            b1.setMatricula("MAT-9839430"); // <--- ¡Agregado!
             b1.setCapacidadTeu(23756);
             b1.setTeuDisponibles(450);
             b1.setRutaActual("Puerto Quetzal, Guatemala ➔ Port of Los Angeles, EE.UU.");
@@ -32,6 +34,7 @@ public class BuqueController {
             Buque b2 = new Buque();
             b2.setNombre("MAERSK MC-KINNEY");
             b2.setImo("IMO-9619907");
+            b2.setMatricula("MAT-9619907"); // <--- ¡Agregado!
             b2.setCapacidadTeu(18270);
             b2.setTeuDisponibles(120);
             b2.setRutaActual("Puerto de Manzanillo, México ➔ Port of Rotterdam, Países Bajos");
@@ -40,11 +43,13 @@ public class BuqueController {
             Buque b3 = new Buque();
             b3.setNombre("CMA CGM JACQUES");
             b3.setImo("IMO-9839179");
+            b3.setMatricula("MAT-9839179"); // <--- ¡Agregado!
             b3.setCapacidadTeu(23112);
             b3.setTeuDisponibles(820);
             b3.setRutaActual("Puerto Barrios, Guatemala ➔ Port of Miami, EE.UU.");
             b3.setEstado("En Ruta");
 
+        
             lista = buqueRepository.saveAll(List.of(b1, b2, b3));
         }
         return ResponseEntity.ok(lista);
