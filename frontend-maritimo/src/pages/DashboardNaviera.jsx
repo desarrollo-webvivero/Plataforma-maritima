@@ -100,27 +100,40 @@ export default function DashboardNaviera() {
   }, []);
 
   // Guardar nuevo buque
-  const handleCrearBuque = async (e) => {
-    e.preventDefault();
-    const codigoImo = nuevoBuque.imo || `IMO-${Math.floor(1000000 + Math.random() * 9000000)}`;
-    const payload = { ...nuevoBuque, imo: codigoImo };
+ 
+const handleCrearBuque = async (e) => {
+  e.preventDefault();
 
-    try {
-      const res = await logisticaApi.post('/buques', payload);
-      setBuques([...buques, res.data]);
-    } catch {
-      // Si el backend aún no tiene POST /buques, lo agregamos visualmente al estado
-      setBuques([...buques, { ...payload, id: Date.now() }]);
-    }
+  const codigoImo =
+    nuevoBuque.imo ||
+    `IMO-${Math.floor(1000000 + Math.random() * 9000000)}`;
 
-    setIsBuqueModalOpen(false);
-    setSuccessMsg({
-      titulo: '¡Buque Incorporado!',
-      detalle: `${payload.nombre} (${codigoImo})`,
-      subtexto: `${payload.teuDisponibles} TEUs habilitados para operación`
-    });
-    setNuevoBuque({ nombre: '', imo: '', capacidadTeu: 5000, teuDisponibles: 1200, rutaActual: rutasComerciales[0], estado: 'En Ruta' });
+  const payload = {
+    ...nuevoBuque,
+    imo: codigoImo
   };
+
+  try {
+    const res = await logisticaApi.post('/buques', payload);
+
+    console.log("Buque guardado en PostgreSQL:", res.data);
+
+    // Recargar los buques reales desde el backend
+    await cargarDatosNaviera();
+
+    alert("¡Buque registrado correctamente!");
+
+  } catch (error) {
+    console.error("Error al registrar buque:", error);
+    console.error("Respuesta del backend:", error.response?.data);
+
+    alert(
+      "No se pudo guardar el buque en PostgreSQL. " +
+      "Revisa la consola y los logs de Render."
+    );
+  }
+};
+
 
   // Publicar nueva subasta de espacios
   const handleCrearSubasta = async (e) => {
@@ -151,21 +164,36 @@ export default function DashboardNaviera() {
       subtexto: `Precio base de salida: $${payload.precioBase.toLocaleString('en-US')}`
     });
   };
+  
+const toggleEstadoBuque = async (buque) => {
 
-  // Cambiar estado de un buque (Atracado <-> En Ruta)
-  const toggleEstadoBuque = async (buque) => {
-    // Determinamos el nuevo estado base
-    const esAtracado = buque.estado?.includes('Atracado');
-    const nuevoEstado = esAtracado ? 'En Ruta' : 'Atracado';
-    
-    try {
-      await logisticaApi.put(`/buques/${buque.id}/estado`, { estado: nuevoEstado });
-      // Forzamos la actualización para traer la fecha formateada desde el backend
-      cargarDatosNaviera(); 
-    } catch (error) {
-       console.error("Error cambiando estado:", error);
-    }
-  };
+  if (buque.id == null) {
+    alert("Este buque no tiene un ID válido en PostgreSQL.");
+    return;
+  }
+
+  const esAtracado = buque.estado?.includes("Atracado");
+  const nuevoEstado = esAtracado ? "En Ruta" : "Atracado";
+
+  try {
+    const res = await logisticaApi.put(
+      `/buques/${buque.id}/estado`,
+      { estado: nuevoEstado }
+    );
+
+    console.log("Estado actualizado:", res.data);
+
+    await cargarDatosNaviera();
+
+  } catch (error) {
+    console.error("Error cambiando estado:", error);
+    console.error("Respuesta del backend:", error.response?.data);
+
+    alert("No se pudo actualizar el estado del buque.");
+  }
+};
+
+
 
   // Cerrar, adjudicar subasta y asignarle el contenedor con el precio exacto al Exportador
   const handleCerrarSubasta = async (licitacion) => {
