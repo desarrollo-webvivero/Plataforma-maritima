@@ -1,5 +1,4 @@
-package main.java.com.maritima.aduana.config;
-
+package  com.maritima.aduana.config;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
