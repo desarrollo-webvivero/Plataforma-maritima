@@ -54,11 +54,36 @@ public class BuqueController {
         }
         return ResponseEntity.ok(lista);
     }
-
+     
     @PostMapping
-    public ResponseEntity<Buque> crearBuque(@RequestBody Buque nuevo) {
-        return ResponseEntity.ok(buqueRepository.save(nuevo));
+        public ResponseEntity<Buque> crearBuque(@RequestBody Buque nuevo) {
+
+    // Validar que el nombre sea obligatorio
+         if (nuevo.getNombre() == null ||
+            nuevo.getNombre().isBlank()) {
+         return ResponseEntity.badRequest().build();
+        }
+
+    // Si no viene matrícula, generar una para el prototipo
+         if (nuevo.getMatricula() == null ||
+            nuevo.getMatricula().isBlank()) {
+
+            String matricula = "MAT-" +
+                java.util.UUID.randomUUID()
+                .toString()
+                .substring(0, 8)
+                .toUpperCase();
+
+         nuevo.setMatricula(matricula);
+        }
+
+    // Guardar el buque en PostgreSQL
+        Buque guardado = buqueRepository.save(nuevo);
+
+        return ResponseEntity.ok(guardado);
     }
+
+    
 
     @PutMapping("/{id}/estado")
     public ResponseEntity<Buque> cambiarEstado(@PathVariable Long id, @RequestBody Map<String, String> payload) {
