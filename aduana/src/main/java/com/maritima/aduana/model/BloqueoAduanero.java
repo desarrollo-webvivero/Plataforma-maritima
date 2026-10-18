@@ -25,17 +25,20 @@ public class BloqueoAduanero {
     @Column(nullable = false)
     private String estado; 
 
+    private String codigoContenedor;
+
     private LocalDateTime fechaBloqueo;
 
     public BloqueoAduanero() {
     }
 
-    public BloqueoAduanero(Long id, String idContenedor, String motivo, String estado, LocalDateTime fechaBloqueo) {
+    public BloqueoAduanero(Long id, String idContenedor, String motivo, String estado, String codigoContenedor, LocalDateTime fechaBloqueo) {
         this.id = id;
         this.idContenedor = idContenedor;
         this.motivo = motivo;
         this.estado = estado;
         this.fechaBloqueo = fechaBloqueo;
+        this.codigoContenedor = codigoContenedor;
     }
 
     public Long getId() {
@@ -68,6 +71,14 @@ public class BloqueoAduanero {
 
     public void setEstado(String estado) {
         this.estado = estado;
+    }
+
+    public String getCodigoContenedor(){
+        return codigoContenedor;
+    }
+
+    public void setCodigoContenedor(String codigoContenedor){
+        this.codigoContenedor = codigoContenedor;
     }
 
     public LocalDateTime getFechaBloqueo() {
