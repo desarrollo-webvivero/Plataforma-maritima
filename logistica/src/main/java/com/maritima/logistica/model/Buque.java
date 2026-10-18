@@ -12,6 +12,7 @@ public class Buque {
 
     private String nombre;
     private String imo;
+   @Column(name = "capacidad_maxima_teus")
     private Integer capacidadTeu;
     private Integer teuDisponibles;
     private String rutaActual;
