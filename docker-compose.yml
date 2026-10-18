@@ -52,8 +52,8 @@ services:
       - redis_cache
     environment:
       # Conecta Java directamente a los otros contenedores de Docker
+
       - SPRING_DATASOURCE_URL=${SPRING_DATASOURCE_URL}
       - SPRING_DATASOURCE_USERNAME=${SPRING_DATASOURCE_USERNAME}
       - SPRING_DATASOURCE_PASSWORD=${SPRING_DATASOURCE_PASSWORD}
-      - SPRING_REDIS_HOST=redis_cache
       - SPRING_REDIS_PORT=6379
