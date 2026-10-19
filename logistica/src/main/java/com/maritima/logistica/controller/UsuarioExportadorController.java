@@ -125,6 +125,44 @@ public class UsuarioExportadorController {
         return ResponseEntity.ok(usuario);
     }
 
+    // Consultar el saldo real en PostgreSQL de un usuario específico
+    @GetMapping("/{id}/saldo")
+    public ResponseEntity<?> obtenerSaldoUsuario(@PathVariable Long id) {
+        return usuarioRepository.findById(id)
+                .map(u -> ResponseEntity.ok(Map.of(
+                        "id", u.getId(),
+                        "codigoExportador", u.getCodigoExportador(),
+                        "empresa", u.getEmpresa(),
+                        "saldo", u.getSaldoInicial() != null ? u.getSaldoInicial() : 0.0
+                )))
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    // Actualizar (descontar o recargar) el saldo en PostgreSQL de un usuario específico
+    @PutMapping("/{id}/saldo")
+    public ResponseEntity<?> actualizarSaldoUsuario(@PathVariable Long id, @RequestBody Map<String, Object> payload) {
+        return usuarioRepository.findById(id).map(u -> {
+            double saldoActual = u.getSaldoInicial() != null ? u.getSaldoInicial() : 0.0;
+
+            if (payload.containsKey("nuevoSaldo")) {
+                saldoActual = Double.parseDouble(payload.get("nuevoSaldo").toString());
+            } else if (payload.containsKey("descontar")) {
+                double descuento = Double.parseDouble(payload.get("descontar").toString());
+                if (saldoActual < descuento) {
+                    return ResponseEntity.badRequest().body(Map.of("error", "Saldo insuficiente en la cuenta del exportador."));
+                }
+                saldoActual -= descuento;
+            } else if (payload.containsKey("recargar")) {
+                double recarga = Double.parseDouble(payload.get("recargar").toString());
+                saldoActual += recarga;
+            }
+
+            u.setSaldoInicial(Math.max(0.0, saldoActual));
+            UsuarioExportador guardado = usuarioRepository.save(u);
+            return ResponseEntity.ok(guardado);
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<?> eliminarUsuario(@PathVariable Long id) {
         if (!usuarioRepository.existsById(id)) {

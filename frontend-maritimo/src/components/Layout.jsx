@@ -121,10 +121,24 @@ export default function Layout() {
 
       const [resCont, resLic, resBuques, resSaldo] = await Promise.allSettled(promesas);
 
-      const userLocal = JSON.parse(localStorage.getItem('exportadorActivo') || localStorage.getItem('usuarioActivo') || 'null');
-      const saldoApi = resSaldo && resSaldo.status === 'fulfilled' ? Number(resSaldo.value.data?.saldo || 0) : 0;
-      const saldoUsuario = userLocal && typeof userLocal.saldoInicial === 'number' ? Number(userLocal.saldoInicial) : 0;
-      setSaldo(saldoUsuario > 0 ? saldoUsuario : saldoApi);
+      const userAct = JSON.parse(localStorage.getItem('exportadorActivo') || localStorage.getItem('usuarioActivo') || 'null');
+      if (rolActual === 'EXPORTADOR' && userAct?.id) {
+        promesas.push(logisticaApi.get(`/usuarios/${userAct.id}/saldo`));
+      } else if (rolActual === 'EXPORTADOR') {
+        promesas.push(logisticaApi.get('/billetera/saldo'));
+      }
+
+      const [resCont, resLic, resBuques, resSaldo] = await Promise.allSettled(promesas);
+
+      if (resSaldo && resSaldo.status === 'fulfilled' && resSaldo.value.data?.saldo !== undefined) {
+        const saldoBD = Number(resSaldo.value.data.saldo);
+        setSaldo(saldoBD);
+        if (userAct && userAct.saldoInicial !== saldoBD) {
+          const actualizado = { ...userAct, saldoInicial: saldoBD };
+          localStorage.setItem('exportadorActivo', JSON.stringify(actualizado));
+          localStorage.setItem('usuarioActivo', JSON.stringify(actualizado));
+        }
+      }
 
       const listaAlertas = [];
       const userAct = JSON.parse(localStorage.getItem('usuarioActivo') || localStorage.getItem('exportadorActivo') || 'null');

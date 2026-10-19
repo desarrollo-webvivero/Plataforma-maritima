@@ -66,10 +66,14 @@ export default function DashboardExportador() {
         });
       }
 
-      const userGuardado = JSON.parse(localStorage.getItem('exportadorActivo') || localStorage.getItem('usuarioActivo') || 'null');
-      const saldoApi = resSaldo.status === 'fulfilled' ? Number(resSaldo.value.data?.saldo || 0) : 0;
-      const saldoUsuario = userGuardado && typeof userGuardado.saldoInicial === 'number' ? Number(userGuardado.saldoInicial) : 0;
-      setSaldo(saldoUsuario > 0 ? saldoUsuario : saldoApi);
+   const usrLocal = JSON.parse(localStorage.getItem('exportadorActivo') || localStorage.getItem('usuarioActivo') || 'null');
+   const [resCont, resLic, resBuques, resSaldo, resUsuarios] = await Promise.allSettled([
+     logisticaApi.get('/contenedores'),
+     logisticaApi.get('/licitaciones'),
+     logisticaApi.get('/buques'),
+     usrLocal?.id ? logisticaApi.get(`/usuarios/${usrLocal.id}/saldo`) : logisticaApi.get('/billetera/saldo'),
+     logisticaApi.get('/usuarios')
+   ]);
 
       // Cargar datos reales del Exportador activo
       const guardado = localStorage.getItem('exportadorActivo') || localStorage.getItem('usuarioActivo');
@@ -165,26 +169,25 @@ export default function DashboardExportador() {
     setProcesandoPago(true);
 
     try {
-      // 1. Descontar saldo de la Billetera Virtual
-      await logisticaApi.post('/billetera/descontar', {
-        monto: cotizacionActual
-      });
+   // 1. Descontar saldo directamente del usuario exportador en PostgreSQL
+   if (exportadorInfo?.id) {
+     const resUsr = await logisticaApi.put(`/usuarios/${exportadorInfo.id}/saldo`, {
+       descontar: cotizacionActual
+     });
+     localStorage.setItem('exportadorActivo', JSON.stringify(resUsr.data));
+     localStorage.setItem('usuarioActivo', JSON.stringify(resUsr.data));
+     setSaldo(Number(resUsr.data.saldoInicial));
+   } else {
+     await logisticaApi.post('/billetera/descontar', { monto: cotizacionActual });
+   }
 
-      if (exportadorInfo) {
-        const nuevoSaldoUsr = Math.max(0, Number(saldo) - cotizacionActual);
-        const usrActualizado = { ...exportadorInfo, saldoInicial: nuevoSaldoUsr };
-        localStorage.setItem('exportadorActivo', JSON.stringify(usrActualizado));
-        localStorage.setItem('usuarioActivo', JSON.stringify(usrActualizado));
-        setSaldo(nuevoSaldoUsr);
-      }
-
-      // 2. Restar los TEUs correspondientes al buque seleccionado en PostgreSQL
-      const nuevosTeusDisponibles = Math.max(0, teusLibresBuque - teusRequeridos);
-      const buqueActualizado = {
-        ...buqueActualObj,
-        teuDisponibles: nuevosTeusDisponibles
-      };
-      await logisticaApi.put(`/buques/${buqueActualObj.id}`, buqueActualizado);
+   // 2. Restar los TEUs correspondientes al buque seleccionado en PostgreSQL
+   const nuevosTeusDisponibles = Math.max(0, teusLibresBuque - teusRequeridos);
+   const buqueActualizado = {
+     ...buqueActualObj,
+     teuDisponibles: nuevosTeusDisponibles
+   };
+   await logisticaApi.put(`/buques/${buqueActualObj.id}`, buqueActualizado);
 
       // 3. Crear el nuevo contenedor vinculado al buque y al exportador
       const prefijos = ['MAEU', 'MSCU', 'CMAU', 'HLCU'];

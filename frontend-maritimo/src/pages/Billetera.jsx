@@ -19,12 +19,21 @@ export default function Billetera() {
 
   // Consultar saldo real al backend al cargar la página
   useEffect(() => {
-    logisticaApi.get('/billetera/saldo')
-      .then(response => {
-        // Aquí usamos la clave exacta que vimos en el JSON de red:
-        setSaldoTokens(response.data.saldoDisponible);
-      })
-      .catch(error => console.error("Error al obtener saldo:", error));
+    const cargarSaldoReal = async () => {
+      try {
+        const usr = JSON.parse(localStorage.getItem('exportadorActivo') || localStorage.getItem('usuarioActivo') || 'null');
+        if (usr?.id) {
+          const res = await logisticaApi.get(`/usuarios/${usr.id}/saldo`);
+          setSaldoTokens(Number(res.data.saldo));
+        } else {
+          const response = await logisticaApi.get('/billetera/saldo');
+          setSaldoTokens(response.data.saldoDisponible);
+        }
+      } catch (error) {
+        console.error("Error al obtener saldo:", error);
+      }
+    };
+    cargarSaldoReal();
   }, []);
 
   const handleRecargar = async (e) => {
@@ -33,13 +42,24 @@ export default function Billetera() {
     if (!montoNumerico || montoNumerico <= 0) return;
 
     try {
-      // 1. Llamada REAL al backend en Java
-      const response = await logisticaApi.post('/billetera/recargar', {
-        monto: montoNumerico
-      });
+      const usr = JSON.parse(localStorage.getItem('exportadorActivo') || localStorage.getItem('usuarioActivo') || 'null');
+      let nuevoSaldoCalculado = 0;
 
-      // 2. Actualizamos la pantalla con el saldo real que nos devuelve PostgreSQL
-      setSaldoTokens(response.data.saldoDisponible);
+      if (usr?.id) {
+        const resUsr = await logisticaApi.put(`/usuarios/${usr.id}/saldo`, {
+          recargar: montoNumerico
+        });
+        localStorage.setItem('exportadorActivo', JSON.stringify(resUsr.data));
+        localStorage.setItem('usuarioActivo', JSON.stringify(resUsr.data));
+        nuevoSaldoCalculado = Number(resUsr.data.saldoInicial);
+      } else {
+        const response = await logisticaApi.post('/billetera/recargar', {
+          monto: montoNumerico
+        });
+        nuevoSaldoCalculado = response.data.saldoDisponible;
+      }
+
+      setSaldoTokens(nuevoSaldoCalculado);
 
       // 3. Agregamos el registro visual en las transacciones
       const nuevaTx = {
@@ -56,6 +76,7 @@ export default function Billetera() {
       setMontoRecarga('');
 
       // Disparamos evento global para actualizar barras de navegación o headers si existen
+      window.dispatchEvent(new Event('storage'));
       window.dispatchEvent(new Event('saldoActualizado'));
 
       alert(`¡Recarga exitosa de ${montoNumerico.toLocaleString('en-US')} Tokens!`);

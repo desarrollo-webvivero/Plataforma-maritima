@@ -85,6 +85,25 @@ public class BuqueController {
 
     
 
+    @PutMapping("/{id}")
+    public ResponseEntity<Buque> actualizarBuque(@PathVariable Long id, @RequestBody Buque datosActualizados) {
+        return buqueRepository.findById(id).map(buque -> {
+            if (datosActualizados.getTeuDisponibles() != null) {
+                buque.setTeuDisponibles(datosActualizados.getTeuDisponibles());
+            }
+            if (datosActualizados.getNombre() != null) {
+                buque.setNombre(datosActualizados.getNombre());
+            }
+            if (datosActualizados.getRutaActual() != null) {
+                buque.setRutaActual(datosActualizados.getRutaActual());
+            }
+            if (datosActualizados.getEstado() != null) {
+                buque.setEstado(datosActualizados.getEstado());
+            }
+            return ResponseEntity.ok(buqueRepository.save(buque));
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
     @PutMapping("/{id}/estado")
     public ResponseEntity<Buque> cambiarEstado(@PathVariable Long id, @RequestBody Map<String, String> payload) {
         return buqueRepository.findById(id).map(buque -> {
