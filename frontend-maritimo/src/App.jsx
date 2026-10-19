@@ -23,6 +23,15 @@ function App() {
           <Route path="billetera" element={<Billetera />} />
           <Route path="subastas" element={<SubastaEnVivo />} />
         </Route>
+
+        {/* Rutas directas para evitar pantallas en blanco si se navega a /billetera o /subastas */}
+        <Route element={<Layout />}>
+          <Route path="/billetera" element={<Billetera />} />
+          <Route path="/dashboard/billetera" element={<Billetera />} />
+          <Route path="/subastas" element={<SubastaEnVivo />} />
+          <Route path="/subasta" element={<SubastaEnVivo />} />
+          <Route path="/dashboard/subastas" element={<SubastaEnVivo />} />
+        </Route>
       </Routes>
     </Router>
   );

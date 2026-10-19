@@ -51,18 +51,19 @@ export default function DashboardExportador() {
         const listaBuques = resBuques.value.data;
         setBuques(listaBuques);
 
-        // Preseleccionar el primer buque con espacio disponible si aún no hay uno elegido
-        if (!buqueSeleccionadoId && listaBuques.length > 0) {
+        // Preseleccionar SOLO la primera vez si prevId está vacío
+        setBuqueSeleccionadoId((prevId) => {
+          if (prevId) return prevId; // Si ya elegiste uno, NO lo toca
           const preferido =
             listaBuques.find(b => (b.estado || '').includes('Atracado') && Number(b.teuDisponibles) > 0) ||
             listaBuques.find(b => Number(b.teuDisponibles) > 0) ||
             listaBuques[0];
-
           if (preferido) {
-            setBuqueSeleccionadoId(String(preferido.id));
             sincronizarRutaConBuque(preferido);
+            return String(preferido.id);
           }
-        }
+          return prevId;
+        });
       }
 
       if (resSaldo.status === 'fulfilled' && typeof resSaldo.value.data?.saldo === 'number') {
