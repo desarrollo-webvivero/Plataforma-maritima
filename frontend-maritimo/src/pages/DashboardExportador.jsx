@@ -1,622 +1,640 @@
-import { Package, AlertTriangle, Clock, Gavel, Wallet, MapPin, Search, Plus, X, Loader2, CheckCircle2 } from 'lucide-react';
-import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { logisticaApi } from '../services/api'; // Importamos tu API centralizada
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  Box, Wallet, Gavel, Plus, Search, MapPin, Clock,
+  AlertTriangle, CheckCircle2, X, Ship, Anchor, ArrowRight
+} from 'lucide-react';
+import { logisticaApi } from '../services/api';
 
 export default function DashboardExportador() {
   const navigate = useNavigate();
+
+  const [contenedores, setContenedores] = useState([]);
+  const [licitaciones, setLicitaciones] = useState([]);
+  const [buques, setBuques] = useState([]);
+  const [saldo, setSaldo] = useState(0);
+  const [exportadorInfo, setExportadorInfo] = useState(null);
   const [busqueda, setBusqueda] = useState('');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [successMsg, setSuccessMsg] = useState(null); // <-- NUEVO ESTADO
-  const [cargaSeleccionada, setCargaSeleccionada] = useState(null); // <-- ESTADO PARA DETALLES DE CARGA
-  const [saldo, setSaldo] = useState(0); // Nuevo estado para la Billetera real
-  const [subastas, setSubastas] = useState([]);
-  
-  // Estados para los datos reales
-  const [cargas, setCargas] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [errorConeccion, setErrorConeccion] = useState(false);
 
-  // NUEVO ESTADO: Formulario más real (Booking)
-  const [formData, setFormData] = useState({
-    puertoOrigen: '',
-    puertoDestino: '',
-    tipo: 'Seca', 
-    tamano: '20ft', // 20 o 40 pies
-    peso: ''
-    // NOTA: Quitamos el 'codigo' porque se generará automáticamente
-  });
+  // Estados del Modal "Registrar Nuevo Contenedor"
+  const [mostrarModal, setMostrarModal] = useState(false);
+  const [buqueSeleccionadoId, setBuqueSeleccionadoId] = useState('');
+  const [puertoOrigen, setPuertoOrigen] = useState('Puerto Quetzal, Guatemala');
+  const [puertoDestino, setPuertoDestino] = useState('Puerto de Manzanillo, México');
+  const [naturaleza, setNaturaleza] = useState('Carga Seca (General)');
+  const [tamanoTeu, setTamanoTeu] = useState('20'); // '20' = 1 TEU, '40' = 2 TEUs
+  const [pesoKg, setPesoKg] = useState('14500');
+  const [procesandoPago, setProcesandoPago] = useState(false);
+  const [errorModal, setErrorModal] = useState('');
 
-  const [costoTotal, setCostoTotal] = useState(0);
+  // Cargar todos los datos reales desde PostgreSQL
+  const cargarDatosDashboard = async () => {
+    try {
+      const [resCont, resLic, resBuques, resSaldo, resUsuarios] = await Promise.allSettled([
+        logisticaApi.get('/contenedores'),
+        logisticaApi.get('/licitaciones'),
+        logisticaApi.get('/buques'),
+        logisticaApi.get('/billetera/saldo'),
+        logisticaApi.get('/usuarios')
+      ]);
 
-  // LISTA DE PUERTOS DE EJEMPLO
-  const puertosMundiales = [
-    "Puerto Quetzal, Guatemala",
-    "Santo Tomás de Castilla, Guatemala",
-    "Puerto de Manzanillo, México",
-    "Puerto de Balboa, Panamá",
-    "Port of Los Angeles, EE.UU.",
-    "Port of Shanghai, China",
-    "Port of Rotterdam, Países Bajos"
-  ];
+      if (resCont.status === 'fulfilled' && Array.isArray(resCont.value.data)) {
+        setContenedores(resCont.value.data);
+      }
 
-  // Extrae el país (después de la coma)
-  const getPais = (puertoCompleto) => {
-    if (!puertoCompleto) return '';
-    return puertoCompleto.split(', ')[1];
+      if (resLic.status === 'fulfilled' && Array.isArray(resLic.value.data)) {
+        const activas = resLic.value.data.filter(l => l.estado !== 'ADJUDICADA');
+        setLicitaciones(activas);
+      }
+
+      if (resBuques.status === 'fulfilled' && Array.isArray(resBuques.value.data)) {
+        const listaBuques = resBuques.value.data;
+        setBuques(listaBuques);
+
+        // Preseleccionar el primer buque con espacio disponible si aún no hay uno elegido
+        if (!buqueSeleccionadoId && listaBuques.length > 0) {
+          const preferido =
+            listaBuques.find(b => (b.estado || '').includes('Atracado') && Number(b.teuDisponibles) > 0) ||
+            listaBuques.find(b => Number(b.teuDisponibles) > 0) ||
+            listaBuques[0];
+
+          if (preferido) {
+            setBuqueSeleccionadoId(String(preferido.id));
+            sincronizarRutaConBuque(preferido);
+          }
+        }
+      }
+
+      if (resSaldo.status === 'fulfilled' && typeof resSaldo.value.data?.saldo === 'number') {
+        setSaldo(resSaldo.value.data.saldo);
+      }
+
+      // Cargar datos reales del Exportador activo
+      const guardado = localStorage.getItem('exportadorActivo') || localStorage.getItem('usuarioActivo');
+      if (guardado) {
+        setExportadorInfo(JSON.parse(guardado));
+      } else if (resUsuarios.status === 'fulfilled' && Array.isArray(resUsuarios.value.data)) {
+        const exp = resUsuarios.value.data.find(u => (u.rol || 'EXPORTADOR') === 'EXPORTADOR') || resUsuarios.value.data[0];
+        if (exp) {
+          setExportadorInfo(exp);
+          localStorage.setItem('exportadorActivo', JSON.stringify(exp));
+        }
+      }
+    } catch (error) {
+      console.error('Error cargando panel del exportador:', error);
+    }
   };
 
-  // Límites dinámicos según el tamaño del equipo
-  const pesoMaximo = formData.tamano === '20ft' ? 28000 : 29000;
-  const pesoMinimo = 100;
-
-  // LOGICA DE COTIZACIÓN AUTOMÁTICA
   useEffect(() => {
-    if (!formData.peso) {
-      setCostoTotal(0);
-      return;
-    }
-
-    // 1. Tarifa base por tamaño del contenedor
-    let tarifaBase = formData.tamano === '20ft' ? 1200 : 2000;
-
-    // 2. Recargo por tipo de equipo especial
-    if (formData.tipo === 'Refrigerada') tarifaBase += 850; // Requiere generador eléctrico
-    if (formData.tipo === 'Peligrosa') tarifaBase += 1500;  // Seguros especiales (IMO)
-
-    // 3. Recargo por exceso de peso (ej. $0.15 por cada kg extra después de 15,000 kg)
-    let recargoPeso = 0;
-    const pesoNum = parseFloat(formData.peso);
-    if (pesoNum > 15000) {
-      recargoPeso = (pesoNum - 15000) * 0.15;
-    }
-
-    setCostoTotal(tarifaBase + recargoPeso);
-  }, [formData]);
-
-  useEffect(() => {
-    const fetchDatosIniciales = async () => {
-      try {
-        const [responseContenedores, responseSaldo, responseSubastas] = await Promise.all([
-          logisticaApi.get('/contenedores'),
-          logisticaApi.get('/billetera/saldo'),
-          logisticaApi.get('/licitaciones')
-        ]);
-
-        const cargasNormalizadas = responseContenedores.data.map(c => ({
-          ...c,
-          retenido: c.retenido === true || (c.estado && c.estado.toLowerCase().includes('retenid'))
-        }));
-        setCargas(cargasNormalizadas);
-        
-        try {
-            setSaldo(responseSaldo.data.saldoDisponible);
-        } catch (e) {
-            setSaldo(14500.00);
-        }
-
-        // Filtramos solo las subastas ACTIVAS
-        const soloActivas = responseSubastas.data.filter(sub => sub.estado !== 'ADJUDICADA');
-        setSubastas(soloActivas);
-
-        setErrorConeccion(false);
-        setIsLoading(false);
-      } catch (error) {
-        console.error("Error conectando al backend:", error);
-        setIsLoading(false);
-      }
-    };
-
-    fetchDatosIniciales();
-
-    // Se sincroniza automáticamente cada 3 segundos en tiempo real
-    const intervalo = setInterval(fetchDatosIniciales, 3000);
-    window.addEventListener('datosActualizados', fetchDatosIniciales);
-
-    return () => {
-      clearInterval(intervalo);
-      window.removeEventListener('datosActualizados', fetchDatosIniciales);
-    };
+    cargarDatosDashboard();
+    const interval = setInterval(cargarDatosDashboard, 4000);
+    return () => clearInterval(interval);
   }, []);
 
-  // NUEVO: Manejador para actualizar el estado cuando el usuario escribe en el formulario
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-
-    // Si el campo que están modificando es el peso, aplicamos el bloqueo estricto
-    if (name === 'peso') {
-      const maximoPermitido = formData.tamano === '20ft' ? 28000 : 29000;
-      
-      // Si el valor ingresado es mayor al máximo legal, cortamos la ejecución aquí
-      // y no dejamos que el número se escriba en la pantalla
-      if (value !== '' && parseFloat(value) > maximoPermitido) {
-        return; 
-      }
+  // Sincronizar origen y destino según la ruta del buque elegido
+  const sincronizarRutaConBuque = (buqueObj) => {
+    if (!buqueObj || !buqueObj.ruta) return;
+    const partes = buqueObj.ruta.split(/->|→|-/).map(s => s.trim()).filter(Boolean);
+    if (partes.length >= 2) {
+      setPuertoOrigen(partes[0]);
+      setPuertoDestino(partes[partes.length - 1]);
     }
-
-    // Para el resto de campos (o si el peso es válido), actualizamos normal
-    setFormData({
-      ...formData,
-      [name]: value
-    });
   };
 
-  const handleGuardarOperacion = async (e) => {
+  const handleSeleccionarBuque = (idStr) => {
+    setBuqueSeleccionadoId(idStr);
+    setErrorModal('');
+    const encontrado = buques.find(b => String(b.id) === String(idStr));
+    if (encontrado) {
+      sincronizarRutaConBuque(encontrado);
+    }
+  };
+
+  // Buques disponibles con capacidad libre
+  const buquesConEspacio = buques.filter(b => Number(b.teuDisponibles || 0) > 0);
+  const buqueActualObj = buques.find(b => String(b.id) === String(buqueSeleccionadoId)) || null;
+
+  // Cálculo de TEUs requeridos y cotización dinámica
+  const teusRequeridos = tamanoTeu === '40' ? 2 : 1;
+
+  const calcularCotizacion = () => {
+    const pesoNum = Number(pesoKg) || 0;
+    if (pesoNum < 100) return 0;
+
+    let base = tamanoTeu === '40' ? 1450 : 950;
+    if (naturaleza.includes('Refrigerada')) base += 450;
+    if (naturaleza.includes('Peligrosa')) base += 600;
+    if (pesoNum > 20000) base += 250;
+
+    return base;
+  };
+
+  const cotizacionActual = calcularCotizacion();
+
+  // Confirmar y Pagar: Resta TEUs al Buque + Descuenta Saldo + Crea Contenedor
+  const handleConfirmarOperacion = async (e) => {
     e.preventDefault();
-    
-    const paisOrigen = getPais(formData.puertoOrigen);
-    const paisDestino = getPais(formData.puertoDestino);
+    setErrorModal('');
 
-    if (paisOrigen === paisDestino) {
-      alert("Por leyes de cabotaje, el puerto de origen y destino no pueden pertenecer al mismo país.");
+    const pesoNum = Number(pesoKg);
+    if (!pesoNum || pesoNum < 100 || pesoNum > 32000) {
+      setErrorModal('Ingresa un peso válido entre 100 kg y 32,000 kg.');
       return;
     }
 
-    const pesoIngresado = parseFloat(formData.peso);
-    if (pesoIngresado < pesoMinimo || pesoIngresado > pesoMaximo) {
-      alert(`El peso de la carga debe estar entre ${pesoMinimo} kg y un máximo legal de ${pesoMaximo} kg para un equipo de ${formData.tamano}.`);
+    if (!buqueActualObj) {
+      setErrorModal('Selecciona un buque disponible para asignar tu contenedor.');
       return;
     }
+
+    const teusLibresBuque = Number(buqueActualObj.teuDisponibles || 0);
+    if (teusLibresBuque < teusRequeridos) {
+      setErrorModal(
+        `El buque ${buqueActualObj.nombre} solo tiene ${teusLibresBuque} TEU(s) libres y tu unidad requiere ${teusRequeridos} TEU(s).`
+      );
+      return;
+    }
+
+    if (saldo < cotizacionActual) {
+      setErrorModal('Saldo insuficiente en tu Billetera Virtual para cubrir esta operación.');
+      return;
+    }
+
+    setProcesandoPago(true);
 
     try {
-      // GENERACIÓN AUTOMÁTICA DEL CÓDIGO (Ej: HLBU-739281)
-      const prefijosNavieras = ['MSCU', 'HLBU', 'MAEU', 'CMAU', 'ZIMU'];
-      const prefijoAleatorio = prefijosNavieras[Math.floor(Math.random() * prefijosNavieras.length)];
-      const numeroAleatorio = Math.floor(100000 + Math.random() * 900000); 
-      const codigoGenerado = `${prefijoAleatorio}-${numeroAleatorio}`;
+      // 1. Descontar saldo de la Billetera Virtual
+      await logisticaApi.post('/billetera/descontar', {
+        monto: cotizacionActual
+      });
 
-      // Armamos el objeto tal como lo espera tu backend actual en Java
-      const payloadBackend = {
-        codigo: codigoGenerado,
-        tipo: formData.tipo,
-        estado: 'Pendiente de Ingreso',
-        peso: formData.peso
-        // Nota: Si luego agregas puertos y costos a tu backend, los puedes enviar aquí
+      // 2. Restar los TEUs correspondientes al buque seleccionado en PostgreSQL
+      const nuevosTeusDisponibles = Math.max(0, teusLibresBuque - teusRequeridos);
+      const buqueActualizado = {
+        ...buqueActualObj,
+        teuDisponibles: nuevosTeusDisponibles
+      };
+      await logisticaApi.put(`/buques/${buqueActualObj.id}`, buqueActualizado);
+
+      // 3. Crear el nuevo contenedor vinculado al buque y al exportador
+      const prefijos = ['MAEU', 'MSCU', 'CMAU', 'HLCU'];
+      const prefijo = prefijos[Math.floor(Math.random() * prefijos.length)];
+      const numeroRandom = Math.floor(100000 + Math.random() * 900000);
+      const codigoContenedor = `${prefijo}-${numeroRandom}`;
+
+      const nombreTitular = exportadorInfo?.empresa || exportadorInfo?.representante || 'Exportador B2B';
+
+      const nuevoContenedor = {
+        codigo: codigoContenedor,
+        pesoKg: pesoNum,
+        tipoContenedor: `${tamanoTeu} Pies (${teusRequeridos} TEU) - ${naturaleza}`,
+        ubicacionActual: `Muelle #1 (${buqueActualObj.nombre})`,
+        estado: `Embarcado (${teusRequeridos} TEU - ${buqueActualObj.nombre} • ${nombreTitular}) | $${cotizacionActual}`,
+        retenidoPorAduana: false
       };
 
-      const response = await logisticaApi.post('/contenedores', payloadBackend);
-      
-      setCargas([...cargas, response.data]);
-      
-      // NUEVO: Descontar el dinero de la billetera visualmente
-      setSaldo(saldoAnterior => saldoAnterior - costoTotal);
+      await logisticaApi.post('/contenedores', nuevoContenedor);
 
-      // Enviamos el cobro real a PostgreSQL
-      await logisticaApi.post('/billetera/descontar', { monto: costoTotal });
-
-      // Sincronizamos la barra de navegación superior
-      window.dispatchEvent(new Event('saldoActualizado'));
-      
-      // Reseteamos el formulario y cerramos el modal de creación
-      setFormData({ puertoOrigen: '', puertoDestino: '', tipo: 'Seca', tamano: '20ft', peso: '' });
-      setIsModalOpen(false);
-      
-      // NUEVO: En lugar del alert, guardamos los datos en el estado para mostrar el modal bonito
-      setSuccessMsg({
-        codigo: codigoGenerado,
-        costo: costoTotal
-      });
-      
-    } catch (error) {
-      console.error("Error al guardar:", error);
-      alert("Hubo un error al procesar la reserva.");
+      // Actualizar estado local y cerrar modal
+      await cargarDatosDashboard();
+      window.dispatchEvent(new Event('storage'));
+      setMostrarModal(false);
+    } catch (err) {
+      console.error('Error registrando contenedor:', err);
+      setErrorModal(
+        err.response?.data?.error || 'Error al procesar la reserva con el servidor.'
+      );
+    } finally {
+      setProcesandoPago(false);
     }
   };
 
-  // Filtrado de búsquedas
-  const cargasFiltradas = cargas.filter(carga => 
-    (carga.codigo && carga.codigo.toLowerCase().includes(busqueda.toLowerCase())) || 
-    (carga.referencia && carga.referencia.toLowerCase().includes(busqueda.toLowerCase()))
-  );
+  // Estadísticas de contenedores
+  const retenidosCount = contenedores.filter(
+    c => Boolean(c.retenidoPorAduana) || (c.estado || '').toLowerCase().includes('retenido')
+  ).length;
+  const activosCount = contenedores.length - retenidosCount;
+
+  const contenedoresFiltrados = contenedores.filter(c => {
+    if (!busqueda.trim()) return true;
+    const t = busqueda.toLowerCase();
+    return (
+      (c.codigo || '').toLowerCase().includes(t) ||
+      (c.estado || '').toLowerCase().includes(t) ||
+      `port-ref-${c.id}`.includes(t)
+    );
+  });
+
+  const nombreSaludo =
+    exportadorInfo?.representante ||
+    exportadorInfo?.empresa ||
+    'Exportador';
 
   return (
-    <div className="animate-in fade-in duration-500 h-full flex flex-col relative">
+    <div className="space-y-6">
       
-      {/* CABECERA */}
-      <div className="mb-6 flex flex-col xl:flex-row justify-between items-start xl:items-end gap-4">
+      {/* CABECERA CON NOMBRE REAL DEL EXPORTADOR Y BOTONES DE ACCIÓN */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900 dark:text-white tracking-tight transition-colors">¡Hola, Exportador!</h1>
-          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400 transition-colors">
-            {errorConeccion && <span className="text-amber-500 font-bold mr-2">⚠️ Modo Offline.</span>}
-            Tienes <span className="font-bold text-red-600 dark:text-red-400">{cargas.filter(c => c.retenido).length} alerta aduanera</span> y{' '}
-            <button
-              type="button"
-              onClick={() => navigate('/dashboard/subastas')}
-              className="font-bold text-slate-900 dark:text-white underline decoration-amber-500/60 hover:text-amber-500 transition-colors cursor-pointer"
-            >
-              {subastas.length} subastas disponibles
-            </button>{' '}
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white">
+              ¡Hola, {nombreSaludo}!
+            </h1>
+            {exportadorInfo?.empresa && (
+              <span className="px-2.5 py-1 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs font-black uppercase">
+                {exportadorInfo.empresa} ({exportadorInfo.codigoExportador || 'EXP-001'})
+              </span>
+            )}
+          </div>
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
+            Tienes{' '}
+            <strong className="text-red-500">{retenidosCount} alerta(s) aduanera(s)</strong>,{' '}
+            <strong className="text-slate-900 dark:text-white underline">
+              {licitaciones.length} subasta(s) disponible(s)
+            </strong>{' '}
+            y{' '}
+            <strong className="text-emerald-600 dark:text-emerald-400">
+              {buquesConEspacio.length} buque(s) con espacio TEU
+            </strong>{' '}
             hoy.
           </p>
         </div>
-        
+
         <div className="flex flex-wrap items-center gap-3">
           <button
-            type="button"
-            onClick={() => navigate('/dashboard/subastas')}
-            className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors shadow-sm cursor-pointer"
+            onClick={() => navigate('/subastas')}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:border-amber-500/50 transition-all cursor-pointer shadow-sm"
           >
-            <Gavel size={16} className="text-amber-500" />
+            <Gavel size={15} className="text-amber-500" />
             Subastas en Vivo
-            <span className="ml-1 px-1.5 py-0.5 text-[10px] font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20 rounded-full">
-              {subastas.length}
+            <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 text-[11px] font-black">
+              {licitaciones.length}
             </span>
           </button>
 
           <button
-            onClick={() => navigate('/dashboard/billetera')}
-            className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors shadow-sm"
+            onClick={() => navigate('/billetera')}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:border-emerald-500/50 transition-all cursor-pointer shadow-sm"
           >
-            <Wallet size={16} className="text-emerald-500" />
+            <Wallet size={15} className="text-emerald-500" />
             Billetera Virtual
           </button>
 
           <button
-            onClick={() => setIsModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
+            onClick={() => {
+              setErrorModal('');
+              setMostrarModal(true);
+            }}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black tracking-wide shadow-md shadow-blue-600/25 transition-all cursor-pointer"
           >
-            Nueva Operación +
+            Nueva Operación
+            <Plus size={16} />
           </button>
         </div>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-6 flex-1 min-h-[600px]">
+      {/* GRID PRINCIPAL */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         
-        {/* COLUMNA IZQUIERDA: MÉTRICAS */}
-        <div className="w-full lg:w-64 flex-shrink-0 flex flex-col gap-6">
-          <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-5 shadow-sm transition-colors">
-            <h3 className="text-sm font-bold text-blue-600 dark:text-blue-400 mb-2 flex items-center gap-2"><Package size={16} /> Contenedores</h3>
-            <div className="text-4xl font-black text-slate-900 dark:text-white mb-3">{cargas.length}</div>
-            <ul className="space-y-2 text-sm">
-              <li className="flex items-center gap-2 text-slate-600 dark:text-slate-300"><span className="w-2 h-2 rounded-full bg-teal-500"></span><strong>{cargas.filter(c => !c.retenido).length}</strong> activos</li>
-              <li className="flex items-center gap-2 text-slate-600 dark:text-slate-300"><span className="w-2 h-2 rounded-full bg-red-500"></span><strong>{cargas.filter(c => c.retenido).length}</strong> retenidos</li>
-            </ul>
+        {/* COLUMNA IZQUIERDA: TARJETAS KPI */}
+        <div className="space-y-4">
+          
+          {/* Tarjeta Contenedores */}
+          <div className="bg-white dark:bg-slate-800/90 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/80 shadow-sm">
+            <div className="flex items-center gap-2 text-xs font-bold text-blue-600 dark:text-blue-400 mb-2">
+              <Box size={15} />
+              <span>Contenedores</span>
+            </div>
+            <div className="text-3xl font-black text-slate-900 dark:text-white mb-3">
+              {contenedores.length}
+            </div>
+            <div className="space-y-1.5 text-xs">
+              <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
+                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                <strong>{activosCount}</strong> activos
+              </div>
+              <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
+                <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                <strong>{retenidosCount}</strong> retenidos
+              </div>
+            </div>
           </div>
-          {/* Tarjeta de Finanzas convertida en botón */}
-          <button
-            type="button"
-            onClick={() => navigate('/dashboard/billetera')}
-            className="w-full text-left bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:border-emerald-500/50 dark:hover:border-emerald-500/50 hover:shadow-md transition-all cursor-pointer group"
-          >
-            <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 text-xs font-bold uppercase tracking-wider mb-2">
-              <Wallet size={16} className="group-hover:scale-110 transition-transform" />
+
+          {/* Tarjeta Finanzas */}
+          <div className="bg-white dark:bg-slate-800/90 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/80 shadow-sm">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 mb-2">
+              <Wallet size={15} />
               <span>Finanzas</span>
             </div>
             <div className="text-2xl font-black text-slate-900 dark:text-white">
               ${Number(saldo).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
-          </button>
+          </div>
 
-          {/* Tarjeta de Información de Subastas */}
-          <button
-            type="button"
-            onClick={() => navigate('/dashboard/subastas')}
-            className="w-full text-left bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:border-amber-500/50 dark:hover:border-amber-500/50 hover:shadow-md transition-all cursor-pointer group"
-          >
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2 text-amber-500 text-xs font-bold uppercase tracking-wider">
-                <Gavel size={16} className="group-hover:rotate-12 transition-transform" />
-                <span>Subastas Activas</span>
-              </div>
-              <span className="flex h-2 w-2 rounded-full bg-amber-500 animate-ping"></span>
+          {/* Tarjeta Buques Disponibles y Subastas */}
+          <div className="bg-white dark:bg-slate-800/90 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/80 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-amber-500">
+                <Ship size={15} /> Flota con Espacio TEU
+              </span>
+              <span className="text-xs font-black text-emerald-500">
+                {buquesConEspacio.length} buques
+              </span>
             </div>
 
-            <div className="text-2xl font-black text-slate-900 dark:text-white mb-3">
-              {subastas.length} <span className="text-xs font-normal text-slate-500 dark:text-slate-400">buques ofertando</span>
-            </div>
-
-            {/* Lista rápida de las primeras 2 subastas */}
-            <div className="space-y-2 pt-3 border-t border-slate-100 dark:border-slate-700/60">
-              {subastas.slice(0, 2).map((sub, idx) => (
-                <div key={idx} className="flex justify-between items-center text-xs">
-                  <span className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[130px]">
-                    {sub.buque || sub.codigoBuque || `Lote #${sub.id}`}
-                  </span>
-                  <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
-                    ${Number(sub.pujaActual || sub.precioBase || 1200).toLocaleString('en-US')}
+            <div className="space-y-2 pt-1">
+              {buquesConEspacio.slice(0, 3).map((b) => (
+                <div
+                  key={b.id}
+                  className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-700/70 flex items-center justify-between text-xs"
+                >
+                  <div className="truncate pr-2">
+                    <span className="font-bold text-slate-800 dark:text-white block truncate">
+                      {b.nombre}
+                    </span>
+                    <span className="text-[10px] text-slate-400 block truncate">
+                      {b.estado || 'En Puerto'}
+                    </span>
+                  </div>
+                  <span className="font-black text-emerald-600 dark:text-emerald-400 shrink-0">
+                    {Number(b.teuDisponibles).toLocaleString('en-US')} TEUs
                   </span>
                 </div>
               ))}
             </div>
-          </button>
+          </div>
+
         </div>
 
-        {/* COLUMNA DERECHA: MAPA Y PANEL FLOTANTE */}
-        <div className="flex-1 bg-slate-300 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 relative overflow-hidden shadow-inner flex justify-end p-4 lg:p-6 min-h-[500px] transition-colors">
-          <div className="absolute inset-0 opacity-30 mix-blend-multiply dark:mix-blend-normal dark:invert dark:opacity-40" style={{ backgroundImage: "url('https://upload.wikimedia.org/wikipedia/commons/8/80/World_map_-_low_resolution.svg')", backgroundSize: "cover", backgroundPosition: "center" }}></div>
+        {/* COLUMNA DERECHA (3/4): MAPA + LISTA DE SEGUIMIENTO DE CARGAS */}
+        <div className="lg:col-span-3 relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700/80 bg-slate-200 dark:bg-[#162032] min-h-[500px] flex justify-end p-4 sm:p-6 shadow-sm">
           
-          <div className="w-full max-w-md bg-white/95 dark:bg-slate-900/95 backdrop-blur-md rounded-lg shadow-2xl z-10 flex flex-col h-full border border-slate-200 dark:border-slate-700 overflow-hidden transition-colors">
+          {/* Fondo estilizado de Mapa */}
+          <div
+            className="absolute inset-0 opacity-35 dark:opacity-25 pointer-events-none bg-cover bg-center"
+            style={{
+              backgroundImage: `url('https://upload.wikimedia.org/wikipedia/commons/e/ec/World_map_blank_without_borders.svg')`
+            }}
+          />
+
+          {/* Panel Flotante de Seguimiento de Cargas */}
+          <div className="relative z-10 w-full max-w-md bg-white/95 dark:bg-slate-900/95 backdrop-blur-md rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl flex flex-col max-h-[460px]">
             
-            <div className="p-4 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 flex items-center gap-3">
-              <MapPin size={18} className="text-blue-600 dark:text-blue-400" />
-              <input type="text" placeholder="Buscar contenedor o BL..." className="w-full bg-transparent border-none outline-none text-sm text-slate-700 dark:text-slate-200 placeholder:text-slate-400" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
-              <Search size={16} className="text-slate-400" />
+            <div className="p-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2">
+              <MapPin size={16} className="text-blue-500 shrink-0" />
+              <input
+                type="text"
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+                placeholder="Buscar contenedor o BL..."
+                className="w-full bg-transparent text-xs text-slate-900 dark:text-white focus:outline-none"
+              />
+              <Search size={15} className="text-slate-400 shrink-0" />
             </div>
 
-            <div className="flex-1 overflow-y-auto">
-              <div className="px-4 py-2 bg-slate-50 dark:bg-slate-800 border-b border-slate-100 dark:border-slate-700 text-xs font-bold text-slate-500 dark:text-slate-400 flex justify-between">
-                <span>SEGUIMIENTO DE CARGAS</span>
-                <span>{cargasFiltradas.length} cargas</span>
-              </div>
+            <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <span>Seguimiento de Cargas</span>
+              <span>{contenedoresFiltrados.length} cargas</span>
+            </div>
 
-              {isLoading ? (
-                <div className="p-8 flex flex-col items-center justify-center text-slate-500 dark:text-slate-400">
-                  <Loader2 className="animate-spin mb-2" size={24} />
-                  <p className="text-sm">Conectando con el puerto...</p>
-                </div>
-              ) : (
-                cargasFiltradas.map((carga, index) => (
-                  <div 
-                    key={index} 
-                    onClick={() => setCargaSeleccionada(carga)} // <-- NUEVO EVENTO CLICK
-                    className={`p-4 border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors ${carga.retenido ? 'bg-red-50/50 dark:bg-red-900/10' : ''}`}
+            <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+              {contenedoresFiltrados.map((c) => {
+                const retenido =
+                  Boolean(c.retenidoPorAduana) ||
+                  (c.estado || '').toLowerCase().includes('retenido');
+
+                return (
+                  <div
+                    key={c.id}
+                    className="p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                   >
-                    <div className="flex justify-between items-start mb-1">
-                      <span className={`font-mono text-sm font-bold ${carga.retenido ? 'text-red-600 dark:text-red-400' : 'text-blue-600 dark:text-blue-400'}`}>
-                        {carga.referencia || `PORT-REF-${carga.id}`}
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[11px] font-mono font-black text-blue-600 dark:text-blue-400">
+                        PORT-REF-{c.id}
                       </span>
-                      {carga.retenido ? <AlertTriangle size={14} className="text-red-500" /> : <Gavel size={14} className="text-slate-400 dark:text-slate-500" />}
+                      <span className="text-[10px] font-semibold text-slate-400">
+                        {Number(c.pesoKg || 14500).toLocaleString('en-US')} kg
+                      </span>
                     </div>
-                    <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-1">{carga.tipo || 'Contenedor'} - {carga.codigo}</h4>
-                    <p className={`text-xs font-medium flex items-center gap-1.5 ${carga.retenido ? 'text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}>
-                      {carga.retenido ? <span className="w-1.5 h-1.5 rounded-full bg-red-600 dark:bg-red-500"></span> : <Clock size={12} className="text-amber-500"/>} 
-                      {carga.estado}
-                    </p>
-                  </div>
-                ))
-       )}
 
-      {/* MODAL DE ÉXITO PERSONALIZADO */}
-      {successMsg && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden transform transition-all scale-in-95">
-            <div className="p-6 text-center">
-              
-              {/* Círculo verde con check */}
-              <div className="w-20 h-20 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner">
-                <CheckCircle2 size={40} />
-              </div>
-              
-              <h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">¡Reserva Confirmada!</h3>
-              <p className="text-sm text-slate-600 dark:text-slate-400 mb-5">
-                Su contenedor asignado es el <br/>
-                <span className="text-lg font-mono font-bold text-slate-800 dark:text-slate-200 mt-1 block">
-                  {successMsg.codigo}
-                </span>
-              </p>
-              
-              {/* Tarjeta interna de cobro */}
-              <div className="bg-slate-50 dark:bg-slate-900/50 rounded-lg p-4 mb-6 border border-slate-100 dark:border-slate-700">
-                <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Costo Debitado</p>
-                <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
-                  ${successMsg.costo.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-                </p>
-              </div>
-              
-              <button
-                onClick={() => setSuccessMsg(null)}
-                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors shadow-md"
-              >
-                Aceptar y Continuar
-              </button>
+                    <p className="text-sm font-black text-slate-900 dark:text-white mb-1">
+                      Contenedor - {c.codigo}
+                    </p>
+
+                    <div className="flex items-center gap-1.5 text-xs">
+                      {retenido ? (
+                        <AlertTriangle size={13} className="text-red-500 shrink-0" />
+                      ) : (
+                        <Clock size={13} className="text-amber-500 shrink-0" />
+                      )}
+                      <span
+                        className={
+                          retenido
+                            ? 'text-red-600 dark:text-red-400 font-bold'
+                            : 'text-slate-500 dark:text-slate-400'
+                        }
+                      >
+                        {c.estado}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
+
           </div>
         </div>
-      )}
-    </div>
-          </div>
-        </div>
+
       </div>
 
-      {/* MODAL PARA NUEVA OPERACIÓN */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
-            <div className="bg-slate-900 px-6 py-4 flex justify-between items-center text-white">
-              <h2 className="text-lg font-bold flex items-center gap-2"><Package size={20}/> Registrar Nuevo Contenedor</h2>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white"><X size={24} /></button>
-            </div>
-            
-            {/* NUEVO: Formulario JSX integrado con el estado */}
-            <form onSubmit={handleGuardarOperacion} className="p-0">
-               <div className="p-6 space-y-5 text-left max-h-[60vh] overflow-y-auto">
-                 
-                 {/* Puertos de Origen y Destino */}
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                   <div>
-                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Puerto de Origen</label>
-                       <select name="puertoOrigen" value={formData.puertoOrigen} onChange={handleInputChange} className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:border-slate-700 dark:text-white" required>
-                           <option value="">Seleccione origen...</option>
-                           {puertosMundiales.map(p => {
-                               const esMismoPais = getPais(formData.puertoDestino) === getPais(p);
-                               return (
-                                 <option key={`orig-${p}`} value={p} disabled={esMismoPais}>
-                                   {p} {esMismoPais ? '(Restringido)' : ''}
-                                 </option>
-                               );
-                           })}
-                       </select>
-                   </div>
-                   <div>
-                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Puerto de Destino</label>
-                       <select name="puertoDestino" value={formData.puertoDestino} onChange={handleInputChange} className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:border-slate-700 dark:text-white" required>
-                           <option value="">Seleccione destino...</option>
-                           {puertosMundiales.map(p => {
-                               const esMismoPais = getPais(formData.puertoOrigen) === getPais(p);
-                               return (
-                                 <option key={`dest-${p}`} value={p} disabled={esMismoPais}>
-                                   {p} {esMismoPais ? '(Restringido)' : ''}
-                                 </option>
-                               );
-                           })}
-                       </select>
-                   </div>
-                 </div>
-
-                 {/* Detalles de la Carga */}
-                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-100 dark:border-slate-700">
-                   <div>
-                       <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1 uppercase tracking-wider">Naturaleza</label>
-                       <select name="tipo" value={formData.tipo} onChange={handleInputChange} className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:border-slate-700 dark:text-white">
-                           <option value="Seca">Carga Seca (General)</option>
-                           <option value="Refrigerada">Refrigerada (Reefer)</option>
-                           <option value="Peligrosa">Peligrosa (IMO)</option>
-                       </select>
-                   </div>
-                   <div>
-                       <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1 uppercase tracking-wider">Tamaño Eq.</label>
-                       <select name="tamano" value={formData.tamano} onChange={handleInputChange} className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:border-slate-700 dark:text-white">
-                           <option value="20ft">20 Pies (TEU)</option>
-                           <option value="40ft">40 Pies (FEU)</option>
-                       </select>
-                   </div>
-                     <div>
-                         <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1 uppercase tracking-wider">Peso (Kg)</label>
-                         <input 
-                           type="number" 
-                           step="0.01" 
-                           min={pesoMinimo} 
-                           max={pesoMaximo} 
-                           name="peso" 
-                           value={formData.peso} 
-                           onChange={handleInputChange} 
-                           onInvalid={(e) => {
-                             if (e.target.validity.rangeUnderflow) {
-                               e.target.setCustomValidity(`El peso mínimo requerido es de ${pesoMinimo} kg.`);
-                             } else if (e.target.validity.rangeOverflow) {
-                               e.target.setCustomValidity(`El peso máximo permitido es de ${pesoMaximo} kg.`);
-                             } else if (e.target.validity.valueMissing) {
-                               e.target.setCustomValidity('Por favor, ingrese el peso de la carga.');
-                             }
-                           }}
-                           onInput={(e) => e.target.setCustomValidity('')}
-                           placeholder={`Min: ${pesoMinimo} | Máx: ${pesoMaximo}`} 
-                           className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:border-slate-700 dark:text-white" 
-                           required 
-                         />
-                     </div>
-                 </div>
-
-                 {/* Resumen de Cotización */}
-                 <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-4 flex justify-between items-center">
-                    <div>
-                      <h4 className="text-sm font-bold text-emerald-800 dark:text-emerald-400">Cotización Estimada</h4>
-                      <p className="text-xs text-emerald-600 dark:text-emerald-500 mt-0.5">Incluye flete marítimo y recargos por equipo.</p>
-                    </div>
-                    <div className="text-2xl font-black text-emerald-700 dark:text-emerald-300">
-                      ${costoTotal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-                    </div>
-                 </div>
-                 
-               </div>
-
-               {/* Botones de acción */}
-               <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-200 dark:border-slate-700">
-                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors rounded-md font-medium">Cancelar</button>
-                 <button type="submit" className="px-6 py-2 text-sm bg-blue-600 hover:bg-blue-700 transition-colors text-white rounded-md font-medium flex items-center gap-2">
-                    <Wallet size={16} /> Confirmar y Pagar
-                 </button>
-               </div>
-            </form>
-
-          </div>
-        </div>
-       )}
-
-      {/* MODAL DE DETALLES DEL CONTENEDOR */}
-      {cargaSeleccionada && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden transform transition-all scale-in-95">
+      {/* MODAL: REGISTRAR NUEVO CONTENEDOR CON SELECCIÓN DE BUQUE Y DESCUENTO DE TEUS */}
+      {mostrarModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
             
             {/* Cabecera del Modal */}
-            <div className="bg-slate-900 px-6 py-4 flex justify-between items-center text-white">
-              <h2 className="text-lg font-bold flex items-center gap-2">
-                <Package size={20}/> Detalles de Operación
-              </h2>
-              <button onClick={() => setCargaSeleccionada(null)} className="text-slate-400 hover:text-white transition-colors">
-                <X size={24} />
+            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <Box size={20} className="text-blue-400" />
+                <h2 className="text-base font-black">
+                  Registrar Nuevo Contenedor y Asignar Buque
+                </h2>
+              </div>
+              <button
+                onClick={() => setMostrarModal(false)}
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X size={18} />
               </button>
             </div>
-            
-            {/* Cuerpo del Modal con la información */}
-            <div className="p-6">
+
+            <form onSubmit={handleConfirmarOperacion} className="p-6 space-y-4">
               
-              {/* Encabezado del contenedor */}
-              <div className="flex items-center gap-4 mb-6 pb-6 border-b border-slate-100 dark:border-slate-700">
-                <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg flex items-center justify-center">
-                  <Package size={24} />
+              {errorModal && (
+                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-xs font-bold flex items-center gap-2">
+                  <AlertTriangle size={15} className="shrink-0" />
+                  <span>{errorModal}</span>
                 </div>
-                <div>
-                  <h3 className="font-mono text-xl font-bold text-slate-900 dark:text-white">{cargaSeleccionada.codigo}</h3>
-                  <p className="text-sm font-medium text-blue-600 dark:text-blue-400">{cargaSeleccionada.referencia || `PORT-REF-${cargaSeleccionada.id}`}</p>
-                </div>
-              </div>
+              )}
 
-              {/* Grid de Datos */}
-              <div className="grid grid-cols-2 gap-y-6 gap-x-4 mb-6">
-                <div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider mb-1">Estado Actual</p>
-                  <div className="flex items-center gap-1.5">
-                    {cargaSeleccionada.retenido ? <span className="w-2 h-2 rounded-full bg-red-600"></span> : <Clock size={14} className="text-amber-500"/>}
-                    <span className={`text-sm font-medium ${cargaSeleccionada.retenido ? 'text-red-600 dark:text-red-400' : 'text-slate-700 dark:text-slate-200'}`}>
-                      {/* Quitamos la etiqueta interna del precio si viene en el texto del estado */}
-                      {cargaSeleccionada.estado ? cargaSeleccionada.estado.split(' | $')[0] : 'Pendiente de Ingreso'}
+              {/* 1. SELECCIONAR BUQUE DISPONIBLE (RESTA TEUS AUTOMÁTICAMENTE) */}
+              <div className="p-3.5 rounded-xl bg-blue-500/5 border border-blue-500/20 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black uppercase tracking-wider text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
+                    <Ship size={14} /> Buque Disponible para Embarque *
+                  </label>
+                  {buqueActualObj && (
+                    <span className="text-[11px] font-black text-emerald-600 dark:text-emerald-400">
+                      Disponibles: {Number(buqueActualObj.teuDisponibles).toLocaleString('en-US')} TEUs
                     </span>
-                  </div>
+                  )}
                 </div>
-                
-                <div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider mb-1">Tipo de Equipo</p>
-                  <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                    {cargaSeleccionada.estado?.includes('TEUs') 
-                      ? 'Lote Subasta (TEUs)' 
-                      : (cargaSeleccionada.tipo ? `Carga ${cargaSeleccionada.tipo}` : 'Carga Seca (Estándar)')}
+
+                <select
+                  value={buqueSeleccionadoId}
+                  onChange={(e) => handleSeleccionarBuque(e.target.value)}
+                  required
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 cursor-pointer"
+                >
+                  {buques.length === 0 ? (
+                    <option value="">No hay buques registrados en la Naviera</option>
+                  ) : (
+                    buques.map((b) => {
+                      const libres = Number(b.teuDisponibles || 0);
+                      return (
+                        <option key={b.id} value={b.id} disabled={libres < teusRequeridos}>
+                          {b.nombre} • ({libres} TEUs libres) • {b.estado || 'En Puerto'}
+                        </option>
+                      );
+                    })
+                  )}
+                </select>
+
+                {buqueActualObj && (
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                    <span>Ruta del buque: <strong>{buqueActualObj.ruta}</strong></span>
+                    <span className="text-amber-600 dark:text-amber-400 font-bold">
+                      Se descontarán -{teusRequeridos} TEU(s)
+                    </span>
                   </p>
+                )}
+              </div>
+
+              {/* 2. PUERTO DE ORIGEN Y DESTINO */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
+                    Puerto de Origen
+                  </label>
+                  <input
+                    type="text"
+                    value={puertoOrigen}
+                    onChange={(e) => setPuertoOrigen(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-900 dark:text-white"
+                  />
                 </div>
 
                 <div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider mb-1">Peso Registrado</p>
-                  <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                    {cargaSeleccionada.peso ? `${parseFloat(cargaSeleccionada.peso).toLocaleString('en-US')} kg` : 'No especificado'}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider mb-1">Precio Pagado</p>
-                  <p className="text-sm font-black text-emerald-600 dark:text-emerald-400">
-                    {(() => {
-                      // 1. Si viene el precio directo de la base de datos
-                      if (cargaSeleccionada.precio) {
-                        return `$${parseFloat(cargaSeleccionada.precio).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
-                      }
-                      // 2. Si es una adjudicación con el precio incrustado ("... | $1550")
-                      if (cargaSeleccionada.estado && cargaSeleccionada.estado.includes(' | $')) {
-                        const precioSubasta = parseFloat(cargaSeleccionada.estado.split(' | $')[1]);
-                        return `$${precioSubasta.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
-                      }
-                      // 3. Si es una adjudicación anterior sin etiqueta, mostramos su base o tarifa normal
-                      const base = cargaSeleccionada.tipo === 'Refrigerada' ? 2050 : cargaSeleccionada.tipo === 'Peligrosa' ? 2700 : 1200;
-                      const recargo = parseFloat(cargaSeleccionada.peso) > 15000 ? (parseFloat(cargaSeleccionada.peso) - 15000) * 0.15 : 0;
-                      return `$${(base + recargo).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
-                    })()}
-                  </p>
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
+                    Puerto de Destino
+                  </label>
+                  <input
+                    type="text"
+                    value={puertoDestino}
+                    onChange={(e) => setPuertoDestino(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-900 dark:text-white"
+                  />
                 </div>
               </div>
 
-              {/* Botón de cierre */}
-              <div className="pt-2">
+              {/* 3. NATURALEZA, TAMAÑO (TEUs) Y PESO (KG) */}
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-500 dark:text-slate-400 mb-1">
+                    Naturaleza
+                  </label>
+                  <select
+                    value={naturaleza}
+                    onChange={(e) => setNaturaleza(e.target.value)}
+                    className="w-full px-2.5 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-900 dark:text-white"
+                  >
+                    <option value="Carga Seca (General)">Carga Seca (General)</option>
+                    <option value="Carga Refrigerada (Reefer)">Carga Refrigerada</option>
+                    <option value="Carga Peligrosa (IMO)">Carga Peligrosa (IMO)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-500 dark:text-slate-400 mb-1">
+                    Tamaño Eq. (TEUs)
+                  </label>
+                  <select
+                    value={tamanoTeu}
+                    onChange={(e) => setTamanoTeu(e.target.value)}
+                    className="w-full px-2.5 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white"
+                  >
+                    <option value="20">20 Pies (1 TEU)</option>
+                    <option value="40">40 Pies (2 TEUs)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-500 dark:text-slate-400 mb-1">
+                    Peso Neto (KG)
+                  </label>
+                  <input
+                    type="number"
+                    min="100"
+                    max="32000"
+                    required
+                    value={pesoKg}
+                    onChange={(e) => setPesoKg(e.target.value)}
+                    placeholder="Ej. 14500"
+                    className="w-full px-2.5 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              {/* 4. RESUMEN DE COTIZACIÓN Y DESCUENTO DE CAPACIDAD */}
+              <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-black text-emerald-800 dark:text-emerald-300 block">
+                    Cotización Estimada ({teusRequeridos} TEU en {buqueActualObj?.nombre || 'Buque'})
+                  </span>
+                  <span className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                    Incluye flete marítimo, reserva de bodega y despacho.
+                  </span>
+                </div>
+                <span className="text-2xl font-black text-emerald-700 dark:text-emerald-400">
+                  ${cotizacionActual.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+
+              {/* BOTONES DEL MODAL */}
+              <div className="pt-2 flex items-center justify-end gap-3">
                 <button
-                  onClick={() => setCargaSeleccionada(null)}
-                  className="w-full py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-lg font-medium transition-colors"
+                  type="button"
+                  onClick={() => setMostrarModal(false)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                 >
-                  Cerrar Detalles
+                  Cancelar
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={procesandoPago || cotizacionActual <= 0}
+                  className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-black flex items-center gap-2 shadow-lg shadow-blue-600/25 cursor-pointer"
+                >
+                  <Wallet size= {15} />
+                  {procesandoPago ? 'Procesando y Restando TEUs...' : 'Confirmar y Pagar'}
                 </button>
               </div>
-              
-            </div>
+
+            </form>
           </div>
         </div>
       )}
+
     </div>
   );
 }
