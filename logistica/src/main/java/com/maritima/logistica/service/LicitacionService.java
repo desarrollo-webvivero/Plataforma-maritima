@@ -47,4 +47,41 @@ public class LicitacionService {
 
         return licitacion;
     }
+
+    /**
+     * Registra y valida una puja manteniendo una Complejidad Ciclomática de McCabe < 10
+     * y aplicando Análisis de Valores Límite (BVA).
+     */
+    @Transactional
+    public Licitacion registrarPujaSegura(Long licitacionId, Double montoOferta) {
+        Licitacion licitacion = obtenerLicitacionActiva(licitacionId);
+        validarMontoPuja(licitacion, montoOferta);
+
+        licitacion.setPujaActual(montoOferta);
+        return licitacionRepository.save(licitacion);
+    }
+
+    private Licitacion obtenerLicitacionActiva(Long licitacionId) {
+        Licitacion licitacion = licitacionRepository.findById(licitacionId)
+                .orElseThrow(() -> new IllegalArgumentException("Licitación no encontrada"));
+
+        if ("ADJUDICADA".equalsIgnoreCase(licitacion.getEstado()) || "CERRADA".equalsIgnoreCase(licitacion.getEstado())) {
+            throw new IllegalStateException("La licitación no se encuentra activa para recibir pujas.");
+        }
+        return licitacion;
+    }
+
+    private void validarMontoPuja(Licitacion licitacion, Double monto) {
+        if (monto == null || monto <= 0) {
+            throw new IllegalArgumentException("El monto de la puja debe ser mayor a cero.");
+        }
+
+        Double ofertaMinima = licitacion.getPujaActual() != null
+                ? licitacion.getPujaActual()
+                : (licitacion.getPrecioBase() != null ? licitacion.getPrecioBase() : 0.0);
+
+        if (monto <= ofertaMinima) {
+            throw new IllegalArgumentException("El monto debe superar la oferta actual o precio base.");
+        }
+    }
 }
