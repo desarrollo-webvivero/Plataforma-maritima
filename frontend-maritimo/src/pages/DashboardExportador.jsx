@@ -66,9 +66,10 @@ export default function DashboardExportador() {
         });
       }
 
-      if (resSaldo.status === 'fulfilled' && typeof resSaldo.value.data?.saldo === 'number') {
-        setSaldo(resSaldo.value.data.saldo);
-      }
+      const userGuardado = JSON.parse(localStorage.getItem('exportadorActivo') || localStorage.getItem('usuarioActivo') || 'null');
+      const saldoApi = resSaldo.status === 'fulfilled' ? Number(resSaldo.value.data?.saldo || 0) : 0;
+      const saldoUsuario = userGuardado && typeof userGuardado.saldoInicial === 'number' ? Number(userGuardado.saldoInicial) : 0;
+      setSaldo(saldoUsuario > 0 ? saldoUsuario : saldoApi);
 
       // Cargar datos reales del Exportador activo
       const guardado = localStorage.getItem('exportadorActivo') || localStorage.getItem('usuarioActivo');
@@ -168,6 +169,14 @@ export default function DashboardExportador() {
       await logisticaApi.post('/billetera/descontar', {
         monto: cotizacionActual
       });
+
+      if (exportadorInfo) {
+        const nuevoSaldoUsr = Math.max(0, Number(saldo) - cotizacionActual);
+        const usrActualizado = { ...exportadorInfo, saldoInicial: nuevoSaldoUsr };
+        localStorage.setItem('exportadorActivo', JSON.stringify(usrActualizado));
+        localStorage.setItem('usuarioActivo', JSON.stringify(usrActualizado));
+        setSaldo(nuevoSaldoUsr);
+      }
 
       // 2. Restar los TEUs correspondientes al buque seleccionado en PostgreSQL
       const nuevosTeusDisponibles = Math.max(0, teusLibresBuque - teusRequeridos);
@@ -585,14 +594,29 @@ export default function DashboardExportador() {
                   </label>
                   <input
                     type="number"
-                    min="100"
-                    max="32000"
                     required
                     value={pesoKg}
-                    onChange={(e) => setPesoKg(e.target.value)}
-                    placeholder="Ej. 14500"
-                    className="w-full px-2.5 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setPesoKg(val);
+                      if (val === '' || Number(val) < 100) {
+                        setErrorModal('El peso neto debe ser mayor o igual a 100 kg.');
+                      } else if (Number(val) > 32000) {
+                        setErrorModal('El peso neto no puede superar los 32,000 kg.');
+                      } else {
+                        setErrorModal('');
+                      }
+                    }}
+                    placeholder="Mín: 100 kg"
+                    className={`w-full px-2.5 py-2 rounded-lg bg-white dark:bg-slate-900 border text-xs font-bold text-slate-900 dark:text-white ${
+                      Number(pesoKg) < 100 ? 'border-red-500 focus:border-red-500' : 'border-slate-300 dark:border-slate-700'
+                    }`}
                   />
+                  {Number(pesoKg) < 100 && (
+                    <span className="text-[10px] font-bold text-red-500 mt-1 block">
+                      * Debe ser mínimo 100 kg
+                    </span>
+                  )}
                 </div>
               </div>
 

@@ -30,6 +30,17 @@ export default function SubastaEnVivo() {
   }, []);
 
   const handlePujar = async (licitacion) => {
+    // 1. Verificar saldo real del exportador antes de permitir la puja
+    const usuarioAct = JSON.parse(localStorage.getItem('exportadorActivo') || localStorage.getItem('usuarioActivo') || 'null');
+    let saldoActual = usuarioAct && typeof usuarioAct.saldoInicial === 'number' ? Number(usuarioAct.saldoInicial) : 0;
+
+    try {
+      const resS = await logisticaApi.get('/billetera/saldo');
+      if (saldoActual <= 0 && typeof resS.data?.saldo === 'number') {
+        saldoActual = Number(resS.data.saldo);
+      }
+    } catch {}
+
     const montoActual = Number(licitacion.pujaActual || licitacion.precioBase || 1000);
     const montoIngresado = Number(montosPuja[licitacion.id] || (montoActual + 100));
 
@@ -38,8 +49,8 @@ export default function SubastaEnVivo() {
       return;
     }
 
-    if (montoIngresado > saldoDisponible) {
-      alert("Fondos insuficientes en tu Billetera Virtual para cubrir esta puja.");
+    if (saldoActual <= 0 || montoIngresado > saldoActual) {
+      alert(`Saldo insuficiente: Tienes $${saldoActual.toLocaleString('en-US', { minimumFractionDigits: 2 })} disponibles y tu puja es de $${Number(montoIngresado).toLocaleString('en-US', { minimumFractionDigits: 2 })}. Recarga tu Billetera Virtual primero.`);
       return;
     }
 
@@ -54,6 +65,18 @@ export default function SubastaEnVivo() {
       const resBilletera = await logisticaApi.post('/billetera/descontar', {
         monto: montoIngresado
       });
+
+      try {
+        await logisticaApi.post('/billetera/descontar', { monto: Number(montoIngresado) });
+      } catch {}
+
+      if (usuarioAct) {
+        const nuevoSaldo = Math.max(0, saldoActual - Number(montoIngresado));
+        const actualizado = { ...usuarioAct, saldoInicial: nuevoSaldo };
+        localStorage.setItem('exportadorActivo', JSON.stringify(actualizado));
+        localStorage.setItem('usuarioActivo', JSON.stringify(actualizado));
+        window.dispatchEvent(new Event('storage'));
+      }
 
       setSaldoDisponible(resBilletera.data.saldoDisponible);
       

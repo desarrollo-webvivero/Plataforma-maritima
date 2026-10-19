@@ -121,82 +121,93 @@ export default function Layout() {
 
       const [resCont, resLic, resBuques, resSaldo] = await Promise.allSettled(promesas);
 
-      if (resSaldo && resSaldo.status === 'fulfilled' && typeof resSaldo.value.data?.saldo === 'number') {
-        setSaldo(resSaldo.value.data.saldo);
-      }
+      const userLocal = JSON.parse(localStorage.getItem('exportadorActivo') || localStorage.getItem('usuarioActivo') || 'null');
+      const saldoApi = resSaldo && resSaldo.status === 'fulfilled' ? Number(resSaldo.value.data?.saldo || 0) : 0;
+      const saldoUsuario = userLocal && typeof userLocal.saldoInicial === 'number' ? Number(userLocal.saldoInicial) : 0;
+      setSaldo(saldoUsuario > 0 ? saldoUsuario : saldoApi);
 
       const listaAlertas = [];
+      const userAct = JSON.parse(localStorage.getItem('usuarioActivo') || localStorage.getItem('exportadorActivo') || 'null');
+      const nombreEmpresaActiva = (userAct?.empresa || userAct?.representante || '').toLowerCase();
 
-      // 1. Alertas de Contenedores (Retenciones, Adjudicaciones y Despachos)
-      if (resCont.status === 'fulfilled' && Array.isArray(resCont.value.data)) {
-        resCont.value.data.forEach((c) => {
-          const est = (c.estado || '').toLowerCase();
-          const retenido = Boolean(c.retenidoPorAduana) || est.includes('retenido') || est.includes('rojo');
+      // 1. Si es EXPORTADOR: solo ve SUS propios contenedores y subastas abiertas para él
+      if (rolActual === 'EXPORTADOR') {
+        if (resCont.status === 'fulfilled' && Array.isArray(resCont.value.data)) {
+          resCont.value.data
+            .filter(c => !nombreEmpresaActiva || (c.estado || '').toLowerCase().includes(nombreEmpresaActiva))
+            .forEach((c) => {
+              const est = (c.estado || '').toLowerCase();
+              const retenido = Boolean(c.retenidoPorAduana) || est.includes('retenido');
+              listaAlertas.push({
+                id: `exp-cont-${c.id}-${c.estado}`,
+                tipo: retenido ? 'URGENTE' : 'INFO',
+                titulo: retenido ? `Retenido en Aduana: ${c.codigo}` : `Tu Contenedor: ${c.codigo}`,
+                detalle: c.estado.split('|')[0].trim(),
+                ruta: '/dashboard',
+                color: retenido ? 'red' : 'blue'
+              });
+            });
+        }
+        if (resLic.status === 'fulfilled' && Array.isArray(resLic.value.data)) {
+          resLic.value.data.filter(l => l.estado !== 'ADJUDICADA').forEach((l) => {
+            listaAlertas.push({
+              id: `exp-lic-${l.id}-${l.pujaActual}`,
+              tipo: 'SUBASTA',
+              titulo: `Subasta Disponible: ${l.buque}`,
+              detalle: `Oferta actual: $${Number(l.pujaActual ?? l.precioBase ?? 950).toLocaleString('en-US')}`,
+              ruta: '/subastas',
+              color: 'amber'
+            });
+          });
+        }
+      }
 
-          if (retenido) {
+      // 2. Si es NAVIERA: solo ve las pujas recibidas en SUS subastas y el estado de sus buques
+      if (rolActual === 'NAVIERA') {
+        if (resLic.status === 'fulfilled' && Array.isArray(resLic.value.data)) {
+          resLic.value.data.filter(l => l.estado !== 'ADJUDICADA').forEach((l) => {
             listaAlertas.push({
-              id: `ret-${c.id}`,
-              tipo: 'URGENTE',
-              titulo: `Alerta Aduanera: ${c.codigo}`,
-              detalle: c.motivoRetencion || `Contenedor retenido en inspección fiscal (${c.estado}).`,
+              id: `nav-lic-${l.id}-${l.pujaActual}`,
+              tipo: 'SUBASTA',
+              titulo: `Puja Recibida en Lote #${l.id} (${l.buque})`,
+              detalle: `Mejor oferta actual: $${Number(l.pujaActual ?? l.precioBase ?? 950).toLocaleString('en-US')} • Lista para adjudicar`,
               ruta: '/dashboard',
-              color: 'red'
+              color: 'amber'
             });
-          } else if (est.includes('despacho') || est.includes('gate-out') || est.includes('levante')) {
+          });
+        }
+        if (resBuques.status === 'fulfilled' && Array.isArray(resBuques.value.data)) {
+          resBuques.value.data.forEach((b) => {
             listaAlertas.push({
-              id: `out-${c.id}`,
-              tipo: 'EXITO',
-              titulo: `Salida Autorizada: ${c.codigo}`,
-              detalle: `Tu contenedor cuenta con levante libre y autorización de salida en terminal.`,
-              ruta: '/dashboard',
-              color: 'emerald'
-            });
-          } else if (est.includes('adjudicado') || est.includes('embarcado')) {
-            listaAlertas.push({
-              id: `emb-${c.id}`,
-              tipo: 'INFO',
-              titulo: `Carga Registrada: ${c.codigo}`,
-              detalle: `${c.estado.split('|')[0].trim()}`,
+              id: `nav-buq-${b.id}-${b.teuDisponibles}`,
+              tipo: 'BUQUE',
+              titulo: `Flota: ${b.nombre}`,
+              detalle: `${b.estado || 'En Ruta'} • Espacio restante: ${b.teuDisponibles} TEUs`,
               ruta: '/dashboard',
               color: 'blue'
             });
-          }
-        });
-      }
-
-      // 2. Alertas de Subastas Activas
-      if (resLic.status === 'fulfilled' && Array.isArray(resLic.value.data)) {
-        const activas = resLic.value.data.filter(l => l.estado !== 'ADJUDICADA');
-        activas.forEach((l) => {
-          listaAlertas.push({
-            id: `lic-${l.id}-${l.pujaActual}`,
-            tipo: 'SUBASTA',
-            titulo: `Subasta en Vivo: ${l.buque}`,
-            detalle: `${l.espaciosTeu || 10} TEUs disponibles • Oferta actual: $${Number(l.pujaActual ?? l.precioBase ?? 950).toLocaleString('en-US')}`,
-            ruta: '/subastas',
-            color: 'amber'
           });
-        });
+        }
       }
 
-      // 3. Alertas de Buques Atracados con Espacio Disponible
-      if (resBuques.status === 'fulfilled' && Array.isArray(resBuques.value.data)) {
-        const atracados = resBuques.value.data.filter(
-          b => b.estado && b.estado.includes('Atracado') && Number(b.teuDisponibles) > 0
-        );
-        atracados.forEach((b) => {
-          listaAlertas.push({
-            id: `buq-${b.id}`,
-            tipo: 'BUQUE',
-            titulo: `Buque en Muelle: ${b.nombre}`,
-            detalle: `Listo para embarque (${Number(b.teuDisponibles).toLocaleString('en-US')} TEUs libres) • ${b.ruta}`,
-            ruta: '/dashboard',
-            color: 'blue'
+      // 3. Si es PUERTO o ADUANAS: solo ve contenedores pendientes de maniobra o retenidos
+      if (rolActual === 'PUERTO' || rolActual === 'ADUANAS') {
+        if (resCont.status === 'fulfilled' && Array.isArray(resCont.value.data)) {
+          resCont.value.data.forEach((c) => {
+            const retenido = Boolean(c.retenidoPorAduana) || (c.estado || '').toLowerCase().includes('retenido');
+            listaAlertas.push({
+              id: `op-cont-${c.id}-${c.estado}`,
+              tipo: retenido ? 'URGENTE' : 'INFO',
+              titulo: retenido ? `Bloqueo Fiscal: ${c.codigo}` : `Maniobra en Terminal: ${c.codigo}`,
+              detalle: `${c.ubicacionActual || 'Patio Principal'} • ${c.estado.split('|')[0].trim()}`,
+              ruta: '/dashboard',
+              color: retenido ? 'red' : 'emerald'
+            });
           });
-        });
+        }
       }
 
-      setNotificaciones(listaAlertas.slice(0, 12));
+      setNotificaciones(listaAlertas.slice(0, 10));
     } catch (err) {
       console.warn('Error actualizando notificaciones:', err);
     }

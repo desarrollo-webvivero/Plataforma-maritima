@@ -7,8 +7,10 @@ export default function Billetera() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [montoRecarga, setMontoRecarga] = useState('');
 
-  // Estado para simular la lista de transacciones y el saldo dinámico
-  const [saldo, setSaldoTokens] = useState(0);
+  const usuarioActivo = JSON.parse(localStorage.getItem('exportadorActivo') || localStorage.getItem('usuarioActivo') || 'null');
+  const [saldo, setSaldoTokens] = useState(() => {
+    return usuarioActivo?.saldoInicial ? Number(usuarioActivo.saldoInicial) : 0;
+  });
   const [transacciones, setTransacciones] = useState([
     { id: 'TX-9982-A', fecha: '11 Oct 2026, 10:45 AM', concepto: 'Recarga de Billetera (T. Crédito)', estado: 'Completado', monto: '+5,000', tipo: 'ingreso' },
     { id: 'TX-8473-B', fecha: '10 Oct 2026, 14:30 PM', concepto: 'Pago Adjudicación TEUs (MSC GÜLSÜN)', estado: 'Completado', monto: '-1,200', tipo: 'egreso' },
