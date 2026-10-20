@@ -6,7 +6,7 @@ export const logisticaApi = axios.create({
     baseURL: import.meta.env.VITE_API_LOGISTICA || 'http://localhost:8081',
     
     // CRÍTICO: Obliga a Axios a enviar siempre cookies/sesiones si existieran
-    withCredentials: true,
+    withCredentials: false,
     
     // Opcional: headers por defecto que tu backend siempre esperará
     headers: {
