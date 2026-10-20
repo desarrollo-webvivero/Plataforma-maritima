@@ -30,13 +30,24 @@ export default function DashboardExportador() {
   // Cargar todos los datos reales desde PostgreSQL
   const cargarDatosDashboard = async () => {
     try {
-      const [resCont, resLic, resBuques, resSaldo, resUsuarios] = await Promise.allSettled([
+
+    const usrLocal = JSON.parse(
+      localStorage.getItem('usuarioActivo') ||
+      localStorage.getItem('exportadorActivo') ||
+      'null'
+    );
+
+    const [resCont, resLic, resBuques, resSaldo, resUsuarios] =
+      await Promise.allSettled([
         logisticaApi.get('/contenedores'),
         logisticaApi.get('/licitaciones'),
         logisticaApi.get('/buques'),
-        logisticaApi.get('/billetera/saldo'),
+        usrLocal?.id
+          ? logisticaApi.get(`/usuarios/${usrLocal.id}/saldo`)
+          : logisticaApi.get('/billetera/saldo'),
         logisticaApi.get('/usuarios')
       ]);
+
 
       if (resCont.status === 'fulfilled' && Array.isArray(resCont.value.data)) {
         setContenedores(resCont.value.data);
@@ -66,14 +77,7 @@ export default function DashboardExportador() {
         });
       }
 
-   const usrLocal = JSON.parse(localStorage.getItem('exportadorActivo') || localStorage.getItem('usuarioActivo') || 'null');
-   const [resCont, resLic, resBuques, resSaldo, resUsuarios] = await Promise.allSettled([
-     logisticaApi.get('/contenedores'),
-     logisticaApi.get('/licitaciones'),
-     logisticaApi.get('/buques'),
-     usrLocal?.id ? logisticaApi.get(`/usuarios/${usrLocal.id}/saldo`) : logisticaApi.get('/billetera/saldo'),
-     logisticaApi.get('/usuarios')
-   ]);
+   
 
       // Cargar datos reales del Exportador activo
       const guardado = localStorage.getItem('exportadorActivo') || localStorage.getItem('usuarioActivo');

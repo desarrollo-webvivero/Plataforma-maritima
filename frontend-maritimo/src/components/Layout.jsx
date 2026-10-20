@@ -109,26 +109,33 @@ export default function Layout() {
   // Cargar Saldo + Generar Notificaciones Reales desde PostgreSQL
   const cargarDatosTiempoReal = async () => {
     try {
+     
       const promesas = [
         logisticaApi.get('/contenedores'),
         logisticaApi.get('/licitaciones'),
         logisticaApi.get('/buques')
       ];
 
+      const userAct = JSON.parse(
+        localStorage.getItem('usuarioActivo') ||
+        localStorage.getItem('exportadorActivo') ||
+        'null'
+      );
+
       if (rolActual === 'EXPORTADOR') {
-        promesas.push(logisticaApi.get('/billetera/saldo'));
+        if (userAct?.id) {
+          promesas.push(
+            logisticaApi.get(`/usuarios/${userAct.id}/saldo`)
+          );
+        } else {
+          promesas.push(
+            logisticaApi.get('/billetera/saldo')
+          );
+        }
       }
 
-      const [resCont, resLic, resBuques, resSaldo] = await Promise.allSettled(promesas);
-
-      const userAct = JSON.parse(localStorage.getItem('exportadorActivo') || localStorage.getItem('usuarioActivo') || 'null');
-      if (rolActual === 'EXPORTADOR' && userAct?.id) {
-        promesas.push(logisticaApi.get(`/usuarios/${userAct.id}/saldo`));
-      } else if (rolActual === 'EXPORTADOR') {
-        promesas.push(logisticaApi.get('/billetera/saldo'));
-      }
-
-      const [resCont, resLic, resBuques, resSaldo] = await Promise.allSettled(promesas);
+      const [resCont, resLic, resBuques, resSaldo] =
+        await Promise.allSettled(promesas);
 
       if (resSaldo && resSaldo.status === 'fulfilled' && resSaldo.value.data?.saldo !== undefined) {
         const saldoBD = Number(resSaldo.value.data.saldo);
@@ -141,7 +148,6 @@ export default function Layout() {
       }
 
       const listaAlertas = [];
-      const userAct = JSON.parse(localStorage.getItem('usuarioActivo') || localStorage.getItem('exportadorActivo') || 'null');
       const nombreEmpresaActiva = (userAct?.empresa || userAct?.representante || '').toLowerCase();
 
       // 1. Si es EXPORTADOR: solo ve SUS propios contenedores y subastas abiertas para él
