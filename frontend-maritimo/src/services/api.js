@@ -15,6 +15,27 @@ export const logisticaApi = axios.create({
     }
 });
 
+
+logisticaApi.interceptors.request.use(
+  (config) => {
+    try {
+      const usuario = JSON.parse(
+        localStorage.getItem('usuarioActivo') || 'null'
+      );
+
+      if (usuario?.token) {
+        config.headers.Authorization = `Bearer ${usuario.token}`;
+      }
+    } catch (error) {
+      console.error('Error leyendo la sesión:', error);
+    }
+
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+
 // Interceptor (Opcional pero recomendado): Para atrapar errores globales
 logisticaApi.interceptors.response.use(
     (response) => response,
