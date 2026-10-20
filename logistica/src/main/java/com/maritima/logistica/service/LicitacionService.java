@@ -4,6 +4,9 @@ import com.maritima.logistica.model.HistorialLicitacion;
 import com.maritima.logistica.model.Licitacion;
 import com.maritima.logistica.repository.HistorialLicitacionRepository;
 import com.maritima.logistica.repository.LicitacionRepository;
+
+import java.math.BigDecimal;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -53,7 +56,7 @@ public class LicitacionService {
      * y aplicando Análisis de Valores Límite (BVA).
      */
     @Transactional
-    public Licitacion registrarPujaSegura(Long licitacionId, Double montoOferta) {
+    public Licitacion registrarPujaSegura(Long licitacionId, BigDecimal montoOferta) {
         Licitacion licitacion = obtenerLicitacionActiva(licitacionId);
         validarMontoPuja(licitacion, montoOferta);
 
@@ -71,16 +74,16 @@ public class LicitacionService {
         return licitacion;
     }
 
-    private void validarMontoPuja(Licitacion licitacion, Double monto) {
-        if (monto == null || monto <= 0) {
+    private void validarMontoPuja(Licitacion licitacion, BigDecimal monto) {
+        if (monto == null || monto.compareTo(BigDecimal.ZERO) <= 0) {
             throw new IllegalArgumentException("El monto de la puja debe ser mayor a cero.");
         }
 
-        Double ofertaMinima = licitacion.getPujaActual() != null
+        BigDecimal ofertaMinima = licitacion.getPujaActual() != null
                 ? licitacion.getPujaActual()
-                : (licitacion.getPrecioBase() != null ? licitacion.getPrecioBase() : 0.0);
+                : (licitacion.getPrecioBase() != null ? licitacion.getPrecioBase() : BigDecimal.ZERO);
 
-        if (monto <= ofertaMinima) {
+        if (monto.compareTo(ofertaMinima) <= 0) {
             throw new IllegalArgumentException("El monto debe superar la oferta actual o precio base.");
         }
     }

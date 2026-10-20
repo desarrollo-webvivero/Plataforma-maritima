@@ -2,6 +2,7 @@ package com.maritima.logistica.model;
 
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 @Entity
 @Table(name = "usuarios_exportadores")
@@ -26,8 +27,11 @@ public class UsuarioExportador {
     @Column(nullable = false, unique = true)
     private String email;
 
-    @Column(nullable = false)
-    private String password;
+
+@Column(nullable = false, length = 255)
+@JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+private String password;
+
 
     private String telefono;
 

@@ -1,6 +1,10 @@
+
 package com.maritima.aduana.config;
 
 import com.maritima.aduana.security.JwtTokenFilter;
+
+import jakarta.servlet.http.HttpServletResponse;
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -21,21 +25,61 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http)
+            throws Exception {
+
         http
-            // Deshabilitar CSRF ya que usamos una API REST Stateless con JWT
             .csrf(csrf -> csrf.disable())
-            // Indicar que no se crearán sesiones HTTP en memoria (Stateless puro)
-            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            // Configurar las reglas de acceso por URL y Roles
-            .authorizeHttpRequests(auth -> auth
-                // Endpoints protegidos para Aduanas: Solo el oficial de aduanas puede manipular bloqueos
-                .requestMatchers("/api/bloqueos/**").hasRole("OFICIAL_ADUANAS")
-                // Resto de endpoints que requieran autenticación general
-                .anyRequest().authenticated()
+
+            .sessionManagement(session ->
+                session.sessionCreationPolicy(
+                    SessionCreationPolicy.STATELESS
+                )
             )
-            // Añadir nuestro filtro JWT antes del filtro estándar de usuario/contraseña de Spring
-            .addFilterBefore(jwtTokenFilter, UsernamePasswordAuthenticationFilter.class);
+
+            .httpBasic(basic -> basic.disable())
+            .formLogin(form -> form.disable())
+
+            .exceptionHandling(ex -> ex
+                .authenticationEntryPoint((request, response, error) ->
+                    response.sendError(
+                        HttpServletResponse.SC_UNAUTHORIZED,
+                        "Autenticación requerida"
+                    )
+                )
+                .accessDeniedHandler((request, response, error) ->
+                    response.sendError(
+                        HttpServletResponse.SC_FORBIDDEN,
+                        "Acceso denegado"
+                    )
+                )
+            )
+
+            .authorizeHttpRequests(auth -> auth
+
+                // Solo oficiales y administradores
+                // pueden crear bloqueos aduaneros.
+                .requestMatchers(
+                    HttpMethod.POST,
+                    "/api/aduanas/bloquear"
+                ).hasAnyRole("OFICIAL_ADUANAS", "ADMIN")
+
+                // Solo el servicio Logística puede
+                // consultar bloqueos de contenedores.
+                .requestMatchers(
+                    HttpMethod.GET,
+                    "/api/aduanas/verificar/**"
+                ).hasRole("SERVICIO_LOGISTICA")
+
+                // Denegar las rutas no autorizadas
+                // explícitamente.
+                .anyRequest().denyAll()
+            )
+
+            .addFilterBefore(
+                jwtTokenFilter,
+                UsernamePasswordAuthenticationFilter.class
+            );
 
         return http.build();
     }

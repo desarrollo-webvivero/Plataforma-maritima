@@ -63,8 +63,8 @@ class MuelleServiceTest {
     @DisplayName("Debe lanzar excepción si Aduanas reporta retención activa")
     void testProcesarGateOut_ConBloqueoAduanero() {
         when(contenedorRepository.findById(10L)).thenReturn(Optional.of(contenedorPrueba));
-        when(aduanaClient.tieneBloqueoActivo(10L)).thenReturn(true);
-
+        when(aduanaClient.tieneBloqueoActivo("CONT-9999"))
+        .thenReturn(true);
         RuntimeException excepcion = assertThrows(RuntimeException.class, () -> {
             muelleService.procesarGateOut(10L, 101);
         });
@@ -78,7 +78,8 @@ class MuelleServiceTest {
     @DisplayName("Debe procesar Gate-out correctamente si Aduana no tiene bloqueos")
     void testProcesarGateOut_Exitoso() {
         when(contenedorRepository.findById(10L)).thenReturn(Optional.of(contenedorPrueba));
-        when(aduanaClient.tieneBloqueoActivo(10L)).thenReturn(false);
+        when(aduanaClient.tieneBloqueoActivo("CONT-9999"))
+        .thenReturn(false);
         when(contenedorRepository.save(any(Contenedor.class))).thenAnswer(i -> i.getArgument(0));
 
         Contenedor resultado = muelleService.procesarGateOut(10L, 101);

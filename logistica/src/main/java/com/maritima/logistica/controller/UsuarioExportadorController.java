@@ -1,11 +1,13 @@
 package com.maritima.logistica.controller;
 
+import com.maritima.logistica.security.JwtService;
 import com.maritima.logistica.model.UsuarioExportador;
 import com.maritima.logistica.repository.UsuarioExportadorRepository;
-import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.core.Authentication;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -19,33 +21,14 @@ public class UsuarioExportadorController {
     @Autowired
     private UsuarioExportadorRepository usuarioRepository;
 
-    // Inicializa cuentas base en PostgreSQL si aún no existen
-    @PostConstruct
-    public void inicializarUsuariosOperativos() {
-        crearSiNoExiste("ADM-001", "Administración Central Port Logistics", "1000001-K", "Administrador IAM", "admin@portlogistics.com", "admin123", "+502 2222-0000", "ADMIN", 0.0);
-        crearSiNoExiste("NAV-001", "Mediterranean Shipping Co. (MSC)", "2000002-K", "Jefe de Operaciones Naviera", "operaciones@naviera.com", "naviera123", "+502 2333-1111", "NAVIERA", 0.0);
-        crearSiNoExiste("PTO-001", "Terminal Portuaria Quetzal", "3000003-K", "Control de Patio y Muelle", "control@puertoquetzal.com", "puerto123", "+502 7888-2222", "PUERTO", 0.0);
-        crearSiNoExiste("ADU-001", "Intendencia de Aduanas SAT", "4000004-K", "Inspector Fiscal Aduanero", "fiscalizacion@sat.gob.gt", "aduana123", "+502 2444-3333", "ADUANAS", 0.0);
-    }
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
-    private void crearSiNoExiste(String prefijo, String empresa, String nit, String rep, String email, String pass, String tel, String rol, Double saldo) {
-        try {
-            if (usuarioRepository.findByEmail(email.toLowerCase()).isEmpty()) {
-                UsuarioExportador u = new UsuarioExportador();
-                u.setCodigoExportador(prefijo);
-                u.setEmpresa(empresa);
-                u.setNit(nit);
-                u.setRepresentante(rep);
-                u.setEmail(email.toLowerCase());
-                u.setPassword(pass);
-                u.setTelefono(tel);
-                u.setRol(rol);
-                u.setSaldoInicial(saldo);
-                u.setFechaRegistro(LocalDateTime.now());
-                usuarioRepository.save(u);
-            }
-        } catch (Exception ignored) {}
-    }
+    @Autowired
+    private JwtService jwtService;
+
+    // Inicializa cuentas base en PostgreSQL si aún no existen
+
 
     @GetMapping
     public List<UsuarioExportador> listarTodos() {
@@ -64,10 +47,14 @@ public class UsuarioExportadorController {
             if (usuarioRepository.findByEmail(emailLimpio).isPresent()) {
                 return ResponseEntity.badRequest().body(Map.of("error", "Este correo electrónico ya está registrado en PostgreSQL."));
             }
+            String password = nuevo.getPassword();
+            if (password == null || password.length() < 12) {
+              return ResponseEntity.badRequest().body(
+                Map.of("error", "La contraseña debe tener al menos 12 caracteres.")
+              );
+            }
 
-            String rolAsignado = (nuevo.getRol() == null || nuevo.getRol().isEmpty())
-                    ? "EXPORTADOR"
-                    : nuevo.getRol().trim().toUpperCase();
+            String rolAsignado = "EXPORTADOR";
 
             String prefijoRol = switch (rolAsignado) {
                 case "NAVIERA" -> "NAV";
@@ -89,6 +76,7 @@ public class UsuarioExportadorController {
             }
             nuevo.setFechaRegistro(LocalDateTime.now());
 
+            nuevo.setPassword(passwordEncoder.encode(password));
             UsuarioExportador guardado = usuarioRepository.save(nuevo);
             return ResponseEntity.ok(guardado);
 
@@ -99,44 +87,102 @@ public class UsuarioExportadorController {
         }
     }
 
+
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody Map<String, String> credenciales) {
-        String email = credenciales.getOrDefault("email", "").trim().toLowerCase();
-        String password = credenciales.getOrDefault("password", "");
-        String rolSolicitado = credenciales.getOrDefault("rol", "").trim().toUpperCase();
 
-        Optional<UsuarioExportador> usuarioOpt = usuarioRepository.findByEmailAndPassword(email, password);
+        String email = credenciales.getOrDefault("email", "")
+            .trim().toLowerCase();
+
+        String password = credenciales.getOrDefault("password", "");
+
+        String rolSolicitado = credenciales.getOrDefault("rol", "")
+            .trim().toUpperCase();
+
+        Optional<UsuarioExportador> usuarioOpt =
+            usuarioRepository.findByEmail(email);
 
         if (usuarioOpt.isEmpty()) {
             return ResponseEntity.status(401).body(
-                Map.of("error", "Correo o contraseña incorrectos. Verifica tus credenciales.")
+                Map.of("error", "Correo o contraseña incorrectos.")
             );
         }
 
         UsuarioExportador usuario = usuarioOpt.get();
 
-        // Validar que el usuario pertenezca al rol que seleccionó en la pantalla de Login
-        if (!rolSolicitado.isEmpty() && !usuario.getRol().equalsIgnoreCase(rolSolicitado)) {
-            return ResponseEntity.status(403).body(
-                Map.of("error", "Esta cuenta pertenece al rol [" + usuario.getRol() + "], no a [" + rolSolicitado + "]. Selecciona el rol correcto arriba.")
+        String hashGuardado = usuario.getPassword();
+
+        if (hashGuardado == null ||
+            !hashGuardado.matches("^\\$2[aby]\\$\\d{2}\\$[./A-Za-z0-9]{53}$") ||
+            !passwordEncoder.matches(password, hashGuardado)) {
+
+            return ResponseEntity.status(401).body(
+                Map.of("error", "Correo o contraseña incorrectos.")
             );
         }
 
-        return ResponseEntity.ok(usuario);
-    }
+        if (!rolSolicitado.isEmpty() &&
+            !usuario.getRol().equalsIgnoreCase(rolSolicitado)) {
 
+            return ResponseEntity.status(403).body(
+                Map.of("error", "El rol seleccionado no corresponde a esta cuenta.")
+            );
+        }
+
+
+        String token = jwtService.generarToken(
+                usuario.getEmail(),
+                usuario.getRol()
+        );
+
+        return ResponseEntity.ok(Map.of(
+                "mensaje", "Inicio de sesión exitoso",
+                "token", token,
+                "tipo", "Bearer",
+                "expiraEn", 3600,
+                "usuario", usuario
+        ));
+
+    }
     // Consultar el saldo real en PostgreSQL de un usuario específico
     @GetMapping("/{id}/saldo")
-    public ResponseEntity<?> obtenerSaldoUsuario(@PathVariable Long id) {
-        return usuarioRepository.findById(id)
-                .map(u -> ResponseEntity.ok(Map.of(
-                        "id", u.getId(),
-                        "codigoExportador", u.getCodigoExportador(),
-                        "empresa", u.getEmpresa(),
-                        "saldo", u.getSaldoInicial() != null ? u.getSaldoInicial() : 0.0
-                )))
-                .orElse(ResponseEntity.notFound().build());
+    public ResponseEntity<?> obtenerSaldoUsuario(
+            @PathVariable Long id,
+            Authentication authentication) {
+
+        Optional<UsuarioExportador> usuarioOpt =
+                usuarioRepository.findById(id);
+
+        if (usuarioOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        UsuarioExportador usuario = usuarioOpt.get();
+
+        boolean esAdmin = authentication.getAuthorities()
+                .stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+
+        boolean esPropietario = usuario.getEmail()
+                .equalsIgnoreCase(authentication.getName());
+
+        if (!esAdmin && !esPropietario) {
+            return ResponseEntity.status(403).body(
+                    Map.of("error", "No tienes permiso para consultar este saldo.")
+            );
+        }
+
+        return ResponseEntity.ok(Map.of(
+                "id", usuario.getId(),
+                "codigoExportador", usuario.getCodigoExportador(),
+                "empresa", usuario.getEmpresa(),
+                "saldo", usuario.getSaldoInicial() != null
+                        ? usuario.getSaldoInicial()
+                        : 0.0
+        ));
     }
+
+
 
     // Actualizar (descontar o recargar) el saldo en PostgreSQL de un usuario específico
     @PutMapping("/{id}/saldo")

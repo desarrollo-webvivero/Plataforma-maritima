@@ -44,7 +44,7 @@ public class MuelleService {
         }
 
         // 2. Validación Cruzada con Aduanas (Llamada HTTP síncrona)
-        if (aduanaClient.tieneBloqueoActivo(contenedorId)) {
+        if (aduanaClient.tieneBloqueoActivo(contenedor.getCodigo())) {
             throw new RuntimeException("ALERTA LEGAL: Operación denegada. El contenedor posee una retención aduanera activa.");
         }
 

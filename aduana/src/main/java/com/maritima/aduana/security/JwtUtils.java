@@ -15,9 +15,20 @@ public class JwtUtils {
     @Value("${jwt.secret}")
     private String secretKey;
 
+    @Value("${jwt.service.secret}")
+    private String serviceSecretKey;
+
     // Generamos la llave criptográfica a partir de los bytes de la clave leída
     private Key getSigningKey() {
         return Keys.hmacShaKeyFor(secretKey.getBytes());
+    }
+
+    private Key getServiceSigningKey() {
+        return Keys.hmacShaKeyFor(
+                serviceSecretKey.getBytes(
+                        java.nio.charset.StandardCharsets.UTF_8
+                )
+        );
     }
 
     // Método para extraer el username/email del token
@@ -47,4 +58,43 @@ public class JwtUtils {
                 .parseClaimsJws(token)
                 .getBody();
     }
+
+
+    public Claims validarTokenServicio(String token) {
+
+        Claims claims = Jwts.parserBuilder()
+                .setSigningKey(getServiceSigningKey())
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
+
+        // Verificar la identidad del microservicio
+        if (!"servicio-logistica".equals(claims.getSubject())) {
+            throw new SecurityException(
+                    "Identidad de servicio no autorizada"
+            );
+        }
+
+        // Verificar que sea un token interno
+        if (!"SERVICIO".equals(claims.get("tipo", String.class))) {
+            throw new SecurityException(
+                    "Tipo de token no autorizado"
+            );
+        }
+
+        // Verificar el rol exclusivo de Logística
+        Object roles = claims.get("roles");
+
+        if (!(roles instanceof java.util.List<?> lista)
+                || lista.size() != 1
+                || !"ROLE_SERVICIO_LOGISTICA".equals(lista.get(0))) {
+
+            throw new SecurityException(
+                    "Permisos de servicio no autorizados"
+            );
+        }
+
+        return claims;
+    }
+
 }

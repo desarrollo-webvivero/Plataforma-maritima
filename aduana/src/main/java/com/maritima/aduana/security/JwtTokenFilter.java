@@ -1,11 +1,13 @@
+
 package com.maritima.aduana.security;
 
-
 import io.jsonwebtoken.Claims;
+
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -26,38 +28,83 @@ public class JwtTokenFilter extends OncePerRequestFilter {
     }
 
     @Override
-    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+    protected void doFilterInternal(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            FilterChain filterChain)
             throws ServletException, IOException {
-        
+
+        SecurityContextHolder.clearContext();
+
         String header = request.getHeader("Authorization");
 
-        // 1. Verificamos si la petición trae la cabecera Authorization con formato Bearer
         if (header != null && header.startsWith("Bearer ")) {
-            String token = header.substring(7);
 
-            // 2. Validamos el token con nuestra utilidad
-            if (jwtUtils.validateToken(token)) {
-                Claims claims = jwtUtils.extractAllClaims(token);
+            String token = header.substring(7).trim();
+
+            try {
+                Claims claims;
+
+                boolean consultaServicio =
+                        "GET".equals(request.getMethod())
+                        && request.getServletPath()
+                                .startsWith("/api/aduanas/verificar/");
+
+                if (consultaServicio) {
+
+                    // Validación exclusiva para Logística
+                    claims = jwtUtils.validarTokenServicio(token);
+
+                } else {
+
+                    // Validación normal para usuarios
+                    if (!jwtUtils.validateToken(token)) {
+                        throw new SecurityException(
+                                "Token de usuario inválido"
+                        );
+                    }
+
+                    claims = jwtUtils.extractAllClaims(token);
+                }
+
                 String username = claims.getSubject();
+                Object rolesClaim = claims.get("roles");
 
-                // 3. Extraemos los roles incrustados en el token (ej: "roles": ["ROLE_OFICIAL_ADUANAS"])
-                List<String> roles = claims.get("roles", List.class);
-                
-                List<SimpleGrantedAuthority> authorities = roles.stream()
-                        .map(SimpleGrantedAuthority::new)
-                        .collect(Collectors.toList());
+                if (username != null
+                        && !username.isBlank()
+                        && rolesClaim instanceof List<?> roles
+                        && !roles.isEmpty()
+                        && roles.stream().allMatch(
+                                role -> role instanceof String
+                                        && !((String) role).isBlank())) {
 
-                // 4. Creamos la credencial de autenticación para Spring Security
-                UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                        username, null, authorities
-                );
+                    List<SimpleGrantedAuthority> authorities =
+                            roles.stream()
+                                    .map(role ->
+                                            new SimpleGrantedAuthority(
+                                                    (String) role
+                                            )
+                                    )
+                                    .collect(Collectors.toList());
 
-                // 5. Establecemos la autenticación en el contexto global del servidor
-                SecurityContextHolder.getContext().setAuthentication(auth);
+                    UsernamePasswordAuthenticationToken auth =
+                            new UsernamePasswordAuthenticationToken(
+                                    username,
+                                    null,
+                                    authorities
+                            );
+
+                    SecurityContextHolder.getContext()
+                            .setAuthentication(auth);
+                }
+
+            } catch (RuntimeException ex) {
+
+                // Ante cualquier error, no autenticar
+                SecurityContextHolder.clearContext();
             }
         }
 
-        // Continuar con la cadena de filtros de la aplicación
         filterChain.doFilter(request, response);
     }
 }
