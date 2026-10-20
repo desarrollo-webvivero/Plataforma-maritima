@@ -1,6 +1,7 @@
 import { Wallet, Lock, Plus, ArrowUpRight, ArrowDownRight, History, Search, CreditCard, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { logisticaApi } from '../services/api';
+import { actualizarPerfilSesion } from '../services/session';
 
 export default function Billetera() {
   const [busqueda, setBusqueda] = useState('');
@@ -50,7 +51,7 @@ export default function Billetera() {
           recargar: montoNumerico
         });
         localStorage.setItem('exportadorActivo', JSON.stringify(resUsr.data));
-        localStorage.setItem('usuarioActivo', JSON.stringify(resUsr.data));
+        actualizarPerfilSesion(resUsr.data);
         nuevoSaldoCalculado = Number(resUsr.data.saldoInicial);
       } else {
         const response = await logisticaApi.post('/billetera/recargar', {

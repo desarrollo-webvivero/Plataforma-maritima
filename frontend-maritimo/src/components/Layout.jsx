@@ -6,6 +6,7 @@ import {
   Box, CheckCircle2, X
 } from 'lucide-react';
 import { logisticaApi } from '../services/api';
+import { actualizarPerfilSesion } from '../services/session';
 
 export default function Layout() {
   const navigate = useNavigate();
@@ -80,21 +81,8 @@ export default function Layout() {
         }
       }
 
-      // Si no había datos completos en localStorage, buscar en PostgreSQL (/usuarios)
-      const resUsuarios = await logisticaApi.get('/usuarios');
-      if (Array.isArray(resUsuarios.data) && resUsuarios.data.length > 0) {
-        const coincidencia =
-          resUsuarios.data.find(u => (u.rol || 'EXPORTADOR').toUpperCase() === rolGuardado) ||
-          resUsuarios.data[0];
-
-        if (coincidencia) {
-          setUsuarioDatos(coincidencia);
-          localStorage.setItem('usuarioActivo', JSON.stringify(coincidencia));
-          if (rolGuardado === 'EXPORTADOR') {
-            localStorage.setItem('exportadorActivo', JSON.stringify(coincidencia));
-          }
-        }
-      }
+      // Sin sesión válida, no seleccionar usuarios arbitrarios de PostgreSQL.
+      setUsuarioDatos(null);
     } catch {
       // Mantiene respaldo si la red está cargando
     }
@@ -143,7 +131,7 @@ export default function Layout() {
         if (userAct && userAct.saldoInicial !== saldoBD) {
           const actualizado = { ...userAct, saldoInicial: saldoBD };
           localStorage.setItem('exportadorActivo', JSON.stringify(actualizado));
-          localStorage.setItem('usuarioActivo', JSON.stringify(actualizado));
+          actualizarPerfilSesion(actualizado);
         }
       }
 
@@ -324,6 +312,7 @@ export default function Layout() {
     localStorage.removeItem('rol');
     localStorage.removeItem('role');
     localStorage.removeItem('usuarioActivo');
+    localStorage.removeItem('exportadorActivo');
     navigate('/login');
   };
 

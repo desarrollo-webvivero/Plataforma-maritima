@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Gavel, Ship, Clock, TrendingUp, Wallet, CheckCircle2, RefreshCw } from 'lucide-react';
 import { logisticaApi } from '../services/api';
+import { actualizarPerfilSesion } from '../services/session';
 
 export default function SubastaEnVivo() {
   const [licitaciones, setLicitaciones] = useState([]);
@@ -74,7 +75,7 @@ export default function SubastaEnVivo() {
         const nuevoSaldo = Math.max(0, saldoActual - Number(montoIngresado));
         const actualizado = { ...usuarioAct, saldoInicial: nuevoSaldo };
         localStorage.setItem('exportadorActivo', JSON.stringify(actualizado));
-        localStorage.setItem('usuarioActivo', JSON.stringify(actualizado));
+        actualizarPerfilSesion(actualizado);
         window.dispatchEvent(new Event('storage'));
       }
 

@@ -5,6 +5,7 @@ import {
   Ship, Truck, Zap, AlertCircle, UserPlus, KeyRound, Settings
 } from 'lucide-react';
 import { logisticaApi } from '../services/api';
+import { guardarSesionLogin } from '../services/session';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -69,14 +70,13 @@ export default function Login() {
         rol: rolSeleccionado
       });
 
-      const usuarioAutenticado = res.data;
+      const usuarioAutenticado = guardarSesionLogin(res.data);
       const rolReal = (usuarioAutenticado.rol || rolSeleccionado).toUpperCase();
 
       // Guardamos en todas las llaves posibles que pueda leer Layout.jsx o Dashboard.jsx
       localStorage.setItem('userRole', rolReal);
       localStorage.setItem('rol', rolReal);
       localStorage.setItem('role', rolReal);
-      localStorage.setItem('usuarioActivo', JSON.stringify(usuarioAutenticado));
 
       if (rolReal === 'EXPORTADOR') {
         localStorage.setItem('exportadorActivo', JSON.stringify(usuarioAutenticado));

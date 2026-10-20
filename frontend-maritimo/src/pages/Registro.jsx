@@ -72,7 +72,7 @@ export default function Registro() {
       }
 
       // 3. Guardamos la sesión activa para que pueda entrar directo al Dashboard
-      localStorage.setItem('userRole', 'EXPORTADOR');
+      // El registro no inicia sesión: el JWT se obtiene únicamente mediante /usuarios/login.
       localStorage.setItem('exportadorActivo', JSON.stringify(nuevoExportador));
 
       setCuentaCreada(nuevoExportador);

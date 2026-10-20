@@ -23,10 +23,9 @@ export default function DashboardPuerto() {
 
   const cargarDatosPuerto = async () => {
     try {
-      const [resCont, resBuques, resUsuarios] = await Promise.allSettled([
+      const [resCont, resBuques] = await Promise.allSettled([
         logisticaApi.get('/contenedores'),
-        logisticaApi.get('/buques'),
-        logisticaApi.get('/usuarios')
+        logisticaApi.get('/buques')
       ]);
 
       if (resCont.status === 'fulfilled' && Array.isArray(resCont.value.data)) {
@@ -35,12 +34,7 @@ export default function DashboardPuerto() {
       if (resBuques.status === 'fulfilled' && Array.isArray(resBuques.value.data)) {
         setBuques(resBuques.value.data);
       }
-      if (resUsuarios.status === 'fulfilled' && Array.isArray(resUsuarios.value.data)) {
-        const soloExportadores = resUsuarios.value.data.filter(
-          u => !u.rol || u.rol.toUpperCase() === 'EXPORTADOR'
-        );
-        setExportadores(soloExportadores);
-      }
+      // La lista completa de usuarios está reservada para ADMIN.
     } catch (error) {
       console.error('Error cargando datos de terminal portuaria:', error);
     } finally {

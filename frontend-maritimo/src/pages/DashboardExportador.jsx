@@ -5,6 +5,7 @@ import {
   AlertTriangle, CheckCircle2, X, Ship, Anchor, ArrowRight
 } from 'lucide-react';
 import { logisticaApi } from '../services/api';
+import { obtenerUsuario, actualizarPerfilSesion } from '../services/session';
 
 export default function DashboardExportador() {
   const navigate = useNavigate();
@@ -31,21 +32,16 @@ export default function DashboardExportador() {
   const cargarDatosDashboard = async () => {
     try {
 
-    const usrLocal = JSON.parse(
-      localStorage.getItem('usuarioActivo') ||
-      localStorage.getItem('exportadorActivo') ||
-      'null'
-    );
+    const usrLocal = obtenerUsuario();
 
-    const [resCont, resLic, resBuques, resSaldo, resUsuarios] =
+    const [resCont, resLic, resBuques, resSaldo] =
       await Promise.allSettled([
         logisticaApi.get('/contenedores'),
         logisticaApi.get('/licitaciones'),
         logisticaApi.get('/buques'),
         usrLocal?.id
           ? logisticaApi.get(`/usuarios/${usrLocal.id}/saldo`)
-          : logisticaApi.get('/billetera/saldo'),
-        logisticaApi.get('/usuarios')
+          : logisticaApi.get('/billetera/saldo')
       ]);
 
 
@@ -80,15 +76,9 @@ export default function DashboardExportador() {
    
 
       // Cargar datos reales del Exportador activo
-      const guardado = localStorage.getItem('exportadorActivo') || localStorage.getItem('usuarioActivo');
+      const guardado = obtenerUsuario();
       if (guardado) {
-        setExportadorInfo(JSON.parse(guardado));
-      } else if (resUsuarios.status === 'fulfilled' && Array.isArray(resUsuarios.value.data)) {
-        const exp = resUsuarios.value.data.find(u => (u.rol || 'EXPORTADOR') === 'EXPORTADOR') || resUsuarios.value.data[0];
-        if (exp) {
-          setExportadorInfo(exp);
-          localStorage.setItem('exportadorActivo', JSON.stringify(exp));
-        }
+        setExportadorInfo(guardado);
       }
     } catch (error) {
       console.error('Error cargando panel del exportador:', error);
@@ -179,7 +169,7 @@ export default function DashboardExportador() {
        descontar: cotizacionActual
      });
      localStorage.setItem('exportadorActivo', JSON.stringify(resUsr.data));
-     localStorage.setItem('usuarioActivo', JSON.stringify(resUsr.data));
+     actualizarPerfilSesion(resUsr.data);
      setSaldo(Number(resUsr.data.saldoInicial));
    } else {
      await logisticaApi.post('/billetera/descontar', { monto: cotizacionActual });

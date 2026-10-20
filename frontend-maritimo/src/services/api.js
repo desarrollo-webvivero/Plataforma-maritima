@@ -23,8 +23,9 @@ logisticaApi.interceptors.request.use(
         localStorage.getItem('usuarioActivo') || 'null'
       );
 
-      if (usuario?.token) {
-        config.headers.Authorization = `Bearer ${usuario.token}`;
+      const token = usuario?.token;
+      if (typeof token === 'string' && token.trim()) {
+        config.headers.Authorization = `Bearer ${token}`;
       }
     } catch (error) {
       console.error('Error leyendo la sesión:', error);
