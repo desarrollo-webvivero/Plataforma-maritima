@@ -123,15 +123,17 @@ public CorsConfigurationSource corsConfigurationSource() {
                 ).hasAnyRole("EXPORTADOR", "ADMIN")
 
 
+
                 // Registro e inicio de sesión públicos
                 .requestMatchers(
                     HttpMethod.POST,
                     "/usuarios/login",
                     "/usuarios/registro",
+                    "/usuarios/registro/codigo",
                     "/api/logistica/usuarios/login",
-                    "/api/logistica/usuarios/registro"
+                    "/api/logistica/usuarios/registro",
+                    "/api/logistica/usuarios/registro/codigo"
                 ).permitAll()
-
                 // Administración de usuarios
                 .requestMatchers(
                     "/usuarios/**",
