@@ -9,10 +9,21 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.core.Authentication;
 
-import java.time.LocalDateTime;
+import com.maritima.logistica.dto.RegistroRequest;
+import com.maritima.logistica.dto.SolicitarCodigoRequest;
+import com.maritima.logistica.service.BrevoEmailService;
+import com.maritima.logistica.service.RegistroUsuarioService;
+import com.maritima.logistica.service.VerificacionEmailService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
+
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Pattern;
 
 @RestController
 @RequestMapping({"/usuarios", "/api/logistica/usuarios"})
@@ -27,6 +38,24 @@ public class UsuarioExportadorController {
     @Autowired
     private JwtService jwtService;
 
+    @Autowired
+    private RegistroUsuarioService registroService;
+
+    @Autowired
+    private VerificacionEmailService verificacionEmailService;
+
+    @Autowired
+    private BrevoEmailService brevoEmailService;
+
+    private static final Logger log =
+        LoggerFactory.getLogger(UsuarioExportadorController.class);
+
+    private static final Pattern EMAIL_REGEX =
+        Pattern.compile("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$");
+
+    private static final Set<Double> SALDOS_PERMITIDOS =
+        Set.of(5000.0, 10000.0, 25000.0, 50000.0);
+
     // Inicializa cuentas base en PostgreSQL si aún no existen
 
 
@@ -35,56 +64,132 @@ public class UsuarioExportadorController {
         return usuarioRepository.findAll();
     }
 
-    @PostMapping("/registro")
-    public ResponseEntity<?> registrarUsuario(@RequestBody UsuarioExportador nuevo) {
-        try {
-            String emailLimpio = nuevo.getEmail() != null ? nuevo.getEmail().trim().toLowerCase() : "";
+    // ---------------------------------------------------------------
+    // PASO 1 del registro: solicitar código de verificación por correo
+    // ---------------------------------------------------------------
+    @PostMapping("/registro/codigo")
+    public ResponseEntity<?> solicitarCodigo(@RequestBody SolicitarCodigoRequest req) {
 
-            if (emailLimpio.isEmpty()) {
-                return ResponseEntity.badRequest().body(Map.of("error", "El correo electrónico es obligatorio."));
-            }
+        String email = normalizarEmail(req.email());
 
-            if (usuarioRepository.findByEmail(emailLimpio).isPresent()) {
-                return ResponseEntity.badRequest().body(Map.of("error", "Este correo electrónico ya está registrado en PostgreSQL."));
-            }
-            String password = nuevo.getPassword();
-            if (password == null || password.length() < 12) {
-              return ResponseEntity.badRequest().body(
-                Map.of("error", "La contraseña debe tener al menos 12 caracteres.")
-              );
-            }
-
-            String rolAsignado = "EXPORTADOR";
-
-            String prefijoRol = switch (rolAsignado) {
-                case "NAVIERA" -> "NAV";
-                case "PUERTO" -> "PTO";
-                case "ADUANAS" -> "ADU";
-                case "ADMIN" -> "ADM";
-                default -> "EXP";
-            };
-
-            long siguienteNumero = usuarioRepository.count() + 1;
-            String codigoGenerado = String.format("%s-%03d", prefijoRol, siguienteNumero);
-
-            nuevo.setCodigoExportador(codigoGenerado);
-            nuevo.setEmail(emailLimpio);
-            nuevo.setRol(rolAsignado);
-
-            if (nuevo.getSaldoInicial() == null) {
-                nuevo.setSaldoInicial(rolAsignado.equals("EXPORTADOR") ? 10000.00 : 0.00);
-            }
-            nuevo.setFechaRegistro(LocalDateTime.now());
-
-            nuevo.setPassword(passwordEncoder.encode(password));
-            UsuarioExportador guardado = usuarioRepository.save(nuevo);
-            return ResponseEntity.ok(guardado);
-
-        } catch (Exception e) {
+        if (!emailValido(email)) {
             return ResponseEntity.badRequest().body(
-                Map.of("error", "Error al guardar usuario en PostgreSQL: " + e.getMessage())
+                Map.of("error", "Ingresa un correo electrónico válido.")
             );
         }
+
+        try {
+            // Si el correo ya existe NO se envía nada, pero la respuesta
+            // es idéntica: así nadie puede averiguar qué correos están registrados.
+            if (usuarioRepository.findByEmail(email).isEmpty()) {
+                verificacionEmailService.generarCodigo(email)
+                    .ifPresent(codigo -> brevoEmailService.enviarCodigoAsync(email, codigo));
+            }
+        } catch (Exception e) {
+            log.error("Error generando código de verificación: {}", e.getClass().getSimpleName());
+        }
+
+        return ResponseEntity.ok(Map.of(
+            "mensaje", "Si el correo es válido, recibirás un código de verificación en unos instantes."
+        ));
+    }
+
+    // ---------------------------------------------------------------
+    // PASO 2 del registro: crear la cuenta con el código recibido
+    // ---------------------------------------------------------------
+    @PostMapping("/registro")
+    public ResponseEntity<?> registrarUsuario(@RequestBody RegistroRequest req) {
+
+        String email = normalizarEmail(req.email());
+
+        String errorValidacion = validarRegistro(req, email);
+        if (errorValidacion != null) {
+            return ResponseEntity.badRequest().body(Map.of("error", errorValidacion));
+        }
+
+        // El saldo inicial solo puede ser uno de los montos del formulario.
+        // Nunca se confía en un valor arbitrario enviado por el cliente.
+        double saldo = req.saldoInicial() == null ? 10000.00 : req.saldoInicial();
+        if (!SALDOS_PERMITIDOS.contains(saldo)) {
+            return ResponseEntity.badRequest().body(
+                Map.of("error", "Monto de apertura de billetera no válido.")
+            );
+        }
+
+        try {
+            RegistroUsuarioService.Resultado resultado =
+                registroService.registrar(req, email, saldo);
+
+            return switch (resultado.estado()) {
+                case OK -> ResponseEntity.ok(resultado.usuario());
+
+                case CODIGO_INVALIDO -> ResponseEntity.badRequest().body(
+                    Map.of("error", "Código de verificación inválido o vencido.")
+                );
+
+                case EMAIL_DUPLICADO -> ResponseEntity.status(409).body(
+                    Map.of("error", "No fue posible completar el registro con estos datos.")
+                );
+            };
+
+        } catch (DataIntegrityViolationException e) {
+            // Carrera entre dos registros simultáneos: el detalle SQL va al log, no al cliente
+            log.warn("Conflicto de integridad al registrar usuario");
+            return ResponseEntity.status(409).body(
+                Map.of("error", "No fue posible completar el registro con estos datos.")
+            );
+
+        } catch (Exception e) {
+            log.error("Error inesperado al registrar usuario", e);
+            return ResponseEntity.status(500).body(
+                Map.of("error", "No se pudo completar el registro. Intenta nuevamente.")
+            );
+        }
+    }
+
+    private static String normalizarEmail(String email) {
+        return email == null ? "" : email.trim().toLowerCase();
+    }
+
+    private static boolean emailValido(String email) {
+        return email.length() <= 254 && EMAIL_REGEX.matcher(email).matches();
+    }
+
+    private static boolean longitudValida(String valor, int min, int max) {
+        if (valor == null) return false;
+        int len = valor.trim().length();
+        return len >= min && len <= max;
+    }
+
+    private String validarRegistro(RegistroRequest req, String email) {
+
+        if (!emailValido(email)) {
+            return "Ingresa un correo electrónico válido.";
+        }
+
+        if (!longitudValida(req.empresa(), 2, 120)) {
+            return "La razón social debe tener entre 2 y 120 caracteres.";
+        }
+        if (!longitudValida(req.nit(), 3, 30)) {
+            return "El NIT debe tener entre 3 y 30 caracteres.";
+        }
+        if (!longitudValida(req.representante(), 2, 120)) {
+            return "El nombre del representante debe tener entre 2 y 120 caracteres.";
+        }
+        if (!longitudValida(req.telefono(), 5, 30)) {
+            return "El teléfono debe tener entre 5 y 30 caracteres.";
+        }
+
+        String password = req.password();
+        if (password == null || password.length() < 12) {
+            return "La contraseña debe tener al menos 12 caracteres.";
+        }
+        // BCrypt solo procesa 72 bytes
+        if (password.getBytes(StandardCharsets.UTF_8).length > 72) {
+            return "La contraseña no puede superar 72 caracteres.";
+        }
+
+        return null;
     }
 
 

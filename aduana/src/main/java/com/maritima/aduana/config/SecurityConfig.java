@@ -1,4 +1,3 @@
-
 package com.maritima.aduana.config;
 
 import com.maritima.aduana.security.JwtTokenFilter;
@@ -56,6 +55,17 @@ public class SecurityConfig {
             )
 
             .authorizeHttpRequests(auth -> auth
+
+                // Ping público para mantener el servicio despierto.
+                // Ruta exacta, solo GET/HEAD, sin comodines.
+                .requestMatchers(
+                    HttpMethod.GET,
+                    "/api/aduanas/ping"
+                ).permitAll()
+                .requestMatchers(
+                    HttpMethod.HEAD,
+                    "/api/aduanas/ping"
+                ).permitAll()
 
                 // Solo oficiales y administradores
                 // pueden crear bloqueos aduaneros.

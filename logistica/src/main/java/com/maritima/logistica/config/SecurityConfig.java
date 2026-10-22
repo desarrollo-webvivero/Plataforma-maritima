@@ -1,4 +1,3 @@
-
 package com.maritima.logistica.config;
 
 import com.maritima.logistica.security.JwtAuthenticationFilter;
@@ -103,6 +102,18 @@ public CorsConfigurationSource corsConfigurationSource() {
 
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+
+                // Ping público para mantener el servicio despierto.
+                // Ruta exacta, solo GET/HEAD, sin comodines.
+                // Debe ir ANTES de las reglas de /api/logistica/usuarios/**
+                .requestMatchers(
+                    HttpMethod.GET,
+                    "/api/logistica/ping"
+                ).permitAll()
+                .requestMatchers(
+                    HttpMethod.HEAD,
+                    "/api/logistica/ping"
+                ).permitAll()
 
                 
                 .requestMatchers(
