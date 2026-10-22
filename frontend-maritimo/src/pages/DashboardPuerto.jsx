@@ -5,6 +5,7 @@ import {
   ArrowRight, AlertTriangle, FileText
 } from 'lucide-react';
 import { logisticaApi } from '../services/api';
+import { notificar, mensajeError } from '../services/notificaciones';
 
 export default function DashboardPuerto() {
   const [contenedores, setContenedores] = useState([]);
@@ -35,8 +36,8 @@ export default function DashboardPuerto() {
         setBuques(resBuques.value.data);
       }
       // La lista completa de usuarios está reservada para ADMIN.
-    } catch (error) {
-      console.error('Error cargando datos de terminal portuaria:', error);
+    } catch {
+      // Sondeo silencioso: se reintenta automáticamente
     } finally {
       setIsLoading(false);
     }
@@ -130,7 +131,7 @@ export default function DashboardPuerto() {
       await logisticaApi.put(`/contenedores/${contenedor.id}`, actualizado);
       setContenedores(prev => prev.map(item => (item.id === contenedor.id ? actualizado : item)));
     } catch (error) {
-      console.error('Error asignando muelle:', error);
+      notificar(mensajeError(error, 'No se pudo asignar el muelle.'));
     }
   };
 
@@ -138,7 +139,7 @@ export default function DashboardPuerto() {
   const registrarIngresoPatio = async (contenedor) => {
     const info = obtenerDetallesContenedor(contenedor);
     if (info.retenidoAduana) {
-      alert('Operación bloqueada: Este contenedor tiene una retención activa de Aduanas.');
+      notificar('Operación bloqueada: este contenedor tiene una retención activa de Aduanas.');
       return;
     }
 
@@ -155,7 +156,7 @@ export default function DashboardPuerto() {
       await logisticaApi.put(`/contenedores/${contenedor.id}`, actualizado);
       setContenedores(prev => prev.map(item => (item.id === contenedor.id ? actualizado : item)));
     } catch (error) {
-      console.error('Error registrando ingreso a patio:', error);
+      notificar(mensajeError(error, 'No se pudo registrar el ingreso a patio.'));
     }
   };
 
@@ -163,7 +164,7 @@ export default function DashboardPuerto() {
   const autorizarDespachoSalida = async (contenedor) => {
     const info = obtenerDetallesContenedor(contenedor);
     if (info.retenidoAduana) {
-      alert('BLOQUEO FISCAL: No se puede autorizar la salida de un contenedor retenido por Aduanas.');
+      notificar('Bloqueo fiscal: no se puede autorizar la salida de un contenedor retenido por Aduanas.');
       return;
     }
 
@@ -179,7 +180,7 @@ export default function DashboardPuerto() {
       await logisticaApi.put(`/contenedores/${contenedor.id}`, actualizado);
       setContenedores(prev => prev.map(item => (item.id === contenedor.id ? actualizado : item)));
     } catch (error) {
-      console.error('Error autorizando salida:', error);
+      notificar(mensajeError(error, 'No se pudo autorizar la salida.'));
     }
   };
 

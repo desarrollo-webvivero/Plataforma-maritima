@@ -87,10 +87,13 @@ export default function Login() {
 
       navigate('/dashboard', { state: { rol: rolReal } });
     } catch (error) {
-      console.error('Error en inicio de sesión:', error);
+      const textoServidor = error.response?.data?.error;
       setErrorMsg(
-        error.response?.data?.error ||
-          'Correo o contraseña incorrectos. Verifica tus credenciales en PostgreSQL.'
+        !error.response
+          ? 'No se pudo conectar con el servidor. Intenta nuevamente.'
+          : typeof textoServidor === 'string' && textoServidor.length <= 200
+            ? textoServidor
+            : 'Correo o contraseña incorrectos.'
       );
     } finally {
       setIsLoading(false);

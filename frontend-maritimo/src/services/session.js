@@ -37,3 +37,19 @@ export const actualizarPerfilSesion = (perfil) => {
     localStorage.setItem('exportadorActivo', JSON.stringify(usuario));
   }
 };
+
+// Cierra la sesión local completamente.
+export const limpiarSesion = () => {
+  ['usuarioActivo', 'exportadorActivo', 'userRole', 'rol', 'role'].forEach((k) =>
+    localStorage.removeItem(k)
+  );
+};
+
+// Guarda el rol en las llaves que leen Layout y Dashboard.
+export const fijarRol = (rol) => {
+  const r = String(rol || 'EXPORTADOR').toUpperCase();
+  localStorage.setItem('userRole', r);
+  localStorage.setItem('rol', r);
+  localStorage.setItem('role', r);
+  return r;
+};

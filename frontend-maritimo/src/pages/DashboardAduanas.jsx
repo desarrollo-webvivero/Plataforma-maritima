@@ -30,8 +30,8 @@ export default function DashboardAduanas() {
       if (res.data) {
         setContenedores(res.data);
       }
-    } catch (error) {
-      console.error("Error consultando contenedores en Aduanas:", error);
+    } catch {
+      // Sondeo silencioso: se reintenta automáticamente
     } finally {
       setIsLoading(false);
     }
@@ -81,8 +81,8 @@ export default function DashboardAduanas() {
         estado: estadoFinal,
         muelleId: contenedor.muelleId || 1
       });
-    } catch (err) {
-      console.warn("Actualizando dictamen aduanero localmente:", err);
+    } catch {
+      // El dictamen se refleja en pantalla y se sincroniza en la siguiente carga
     }
 
     setContenedores(prev =>

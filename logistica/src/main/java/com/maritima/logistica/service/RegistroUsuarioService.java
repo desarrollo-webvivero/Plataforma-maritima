@@ -20,15 +20,18 @@ public class RegistroUsuarioService {
     private final UsuarioExportadorRepository usuarioRepository;
     private final VerificacionEmailService verificacionService;
     private final PasswordEncoder passwordEncoder;
+    private final BilleteraService billeteraService;
 
     public RegistroUsuarioService(
             UsuarioExportadorRepository usuarioRepository,
             VerificacionEmailService verificacionService,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder,
+            BilleteraService billeteraService) {
 
         this.usuarioRepository = usuarioRepository;
         this.verificacionService = verificacionService;
         this.passwordEncoder = passwordEncoder;
+        this.billeteraService = billeteraService;
     }
 
     /**
@@ -69,6 +72,9 @@ public class RegistroUsuarioService {
         // (a diferencia de count()+1, que se repite al borrar usuarios)
         usuario.setCodigoExportador(String.format("EXP-%03d", usuario.getId()));
         usuario = usuarioRepository.save(usuario);
+
+        // La billetera nace junto con la cuenta, con el saldo de apertura elegido
+        billeteraService.obtenerOCrear(usuario);
 
         return new Resultado(Estado.OK, usuario);
     }

@@ -1,53 +1,46 @@
 import axios from 'axios';
+import { obtenerSesion } from './session';
 
-// Creamos la instancia centralizada para el microservicio de Logística
 export const logisticaApi = axios.create({
-    // Usa la variable de entorno, o cae por defecto al puerto 8081 si no existe
-    baseURL: import.meta.env.VITE_API_LOGISTICA || 'http://localhost:8081',
-    
-    // CRÍTICO: Obliga a Axios a enviar siempre cookies/sesiones si existieran
-    withCredentials: false,
-    
-    // Opcional: headers por defecto que tu backend siempre esperará
-    headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-    }
+  baseURL: import.meta.env.VITE_API_LOGISTICA || 'http://localhost:8081',
+  withCredentials: false,
+  headers: {
+    'Content-Type': 'application/json',
+    Accept: 'application/json'
+  }
 });
 
+// Rutas que no necesitan sesión
+const RUTAS_PUBLICAS = ['/usuarios/login', '/usuarios/registro', '/api/logistica/ping'];
+const esPublica = (url = '') => RUTAS_PUBLICAS.some((r) => url.startsWith(r));
 
-logisticaApi.interceptors.request.use(
-  (config) => {
-    try {
-      const usuario = JSON.parse(
-        localStorage.getItem('usuarioActivo') || 'null'
-      );
-
-      const token = usuario?.token;
-      if (typeof token === 'string' && token.trim()) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-    } catch (error) {
-      console.error('Error leyendo la sesión:', error);
-    }
-
+logisticaApi.interceptors.request.use((config) => {
+  if (esPublica(config.url)) {
+    delete config.headers.Authorization;
     return config;
-  },
-  (error) => Promise.reject(error)
-);
+  }
 
+  const token = obtenerSesion()?.token;
 
-// Interceptor (Opcional pero recomendado): Para atrapar errores globales
+  // Sin sesión no se envía la petición: así no se llena la consola de errores 401
+  if (typeof token !== 'string' || !token.trim()) {
+    return Promise.reject(new axios.CanceledError('sin-sesion'));
+  }
+
+  config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
 logisticaApi.interceptors.response.use(
-    (response) => response,
-    (error) => {
-        if (error.response?.status === 500) {
-            console.error("Error interno del servidor en Logística");
-        }
-        return Promise.reject(error);
-    }
-);
+  (response) => response,
+  (error) => {
+    const url = error.config?.url || '';
 
-// Si más adelante creas el microservicio de Aduana en el puerto 8082, 
-// simplemente agregas otra instancia aquí:
-// export const aduanaApi = axios.create({ ... baseURL: 'http://localhost:8082' });
+    // Token vencido o inválido: se cierra la sesión una sola vez y se avisa a la app
+    if (error.response?.status === 401 && !esPublica(url) && obtenerSesion()?.token) {
+      window.dispatchEvent(new Event('sesionExpirada'));
+    }
+
+    return Promise.reject(error);
+  }
+);

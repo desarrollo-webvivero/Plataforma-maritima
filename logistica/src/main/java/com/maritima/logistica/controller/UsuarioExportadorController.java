@@ -11,6 +11,7 @@ import org.springframework.security.core.Authentication;
 
 import com.maritima.logistica.dto.RegistroRequest;
 import com.maritima.logistica.dto.SolicitarCodigoRequest;
+import com.maritima.logistica.service.BilleteraService;
 import com.maritima.logistica.service.BrevoEmailService;
 import com.maritima.logistica.service.RegistroUsuarioService;
 import com.maritima.logistica.service.VerificacionEmailService;
@@ -40,6 +41,9 @@ public class UsuarioExportadorController {
 
     @Autowired
     private RegistroUsuarioService registroService;
+
+    @Autowired
+    private BilleteraService billeteraService;
 
     @Autowired
     private VerificacionEmailService verificacionEmailService;
@@ -121,7 +125,18 @@ public class UsuarioExportadorController {
                 registroService.registrar(req, email, saldo);
 
             return switch (resultado.estado()) {
-                case OK -> ResponseEntity.ok(resultado.usuario());
+                // El correo ya quedó verificado: se inicia sesión automáticamente,
+                // igual que en /login (así el panel carga con su propio token).
+                case OK -> ResponseEntity.ok(Map.of(
+                    "mensaje", "Cuenta creada correctamente",
+                    "token", jwtService.generarToken(
+                        resultado.usuario().getEmail(),
+                        resultado.usuario().getRol()
+                    ),
+                    "tipo", "Bearer",
+                    "expiraEn", 3600,
+                    "usuario", resultado.usuario()
+                ));
 
                 case CODIGO_INVALIDO -> ResponseEntity.badRequest().body(
                     Map.of("error", "Código de verificación inválido o vencido.")
@@ -277,42 +292,18 @@ public class UsuarioExportadorController {
             );
         }
 
+        BilleteraService.Resumen resumen = billeteraService.resumenDe(usuario);
+
         return ResponseEntity.ok(Map.of(
                 "id", usuario.getId(),
                 "codigoExportador", usuario.getCodigoExportador(),
                 "empresa", usuario.getEmpresa(),
-                "saldo", usuario.getSaldoInicial() != null
-                        ? usuario.getSaldoInicial()
-                        : 0.0
+                "saldo", resumen.saldoDisponible()
         ));
     }
 
-
-
-    // Actualizar (descontar o recargar) el saldo en PostgreSQL de un usuario específico
-    @PutMapping("/{id}/saldo")
-    public ResponseEntity<?> actualizarSaldoUsuario(@PathVariable Long id, @RequestBody Map<String, Object> payload) {
-        return usuarioRepository.findById(id).map(u -> {
-            double saldoActual = u.getSaldoInicial() != null ? u.getSaldoInicial() : 0.0;
-
-            if (payload.containsKey("nuevoSaldo")) {
-                saldoActual = Double.parseDouble(payload.get("nuevoSaldo").toString());
-            } else if (payload.containsKey("descontar")) {
-                double descuento = Double.parseDouble(payload.get("descontar").toString());
-                if (saldoActual < descuento) {
-                    return ResponseEntity.badRequest().body(Map.of("error", "Saldo insuficiente en la cuenta del exportador."));
-                }
-                saldoActual -= descuento;
-            } else if (payload.containsKey("recargar")) {
-                double recarga = Double.parseDouble(payload.get("recargar").toString());
-                saldoActual += recarga;
-            }
-
-            u.setSaldoInicial(Math.max(0.0, saldoActual));
-            UsuarioExportador guardado = usuarioRepository.save(u);
-            return ResponseEntity.ok(guardado);
-        }).orElse(ResponseEntity.notFound().build());
-    }
+    // El saldo ya no se modifica desde aquí: toda recarga y cobro pasa por
+    // /billetera/* (billetera única), por eso se eliminó el PUT /{id}/saldo.
 
     @DeleteMapping("/{id}")
     public ResponseEntity<?> eliminarUsuario(@PathVariable Long id) {

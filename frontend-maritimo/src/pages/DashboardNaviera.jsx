@@ -4,6 +4,7 @@ import {
   CheckCircle2, X, Clock, TrendingUp, AlertCircle, RefreshCw 
 } from 'lucide-react';
 import { logisticaApi } from '../services/api';
+import { notificar, mensajeError } from '../services/notificaciones';
 
 export default function DashboardNaviera() {
   const [buques, setBuques] = useState([]);
@@ -81,8 +82,8 @@ export default function DashboardNaviera() {
       if (resLic.data) {
         setLicitaciones(resLic.data);
       }
-    } catch (err) {
-      console.error("Error sincronizando licitaciones:", err);
+    } catch {
+      // Sondeo silencioso: se reintenta automáticamente
     }
   };
 
@@ -114,23 +115,15 @@ const handleCrearBuque = async (e) => {
   };
 
   try {
-    const res = await logisticaApi.post('/buques', payload);
-
-    console.log("Buque guardado en PostgreSQL:", res.data);
+    await logisticaApi.post('/buques', payload);
 
     // Recargar los buques reales desde el backend
     await cargarDatosNaviera();
 
-    alert("¡Buque registrado correctamente!");
+    notificar("Buque registrado correctamente.", 'exito');
 
   } catch (error) {
-    console.error("Error al registrar buque:", error);
-    console.error("Respuesta del backend:", error.response?.data);
-
-    alert(
-      "No se pudo guardar el buque en PostgreSQL. " +
-      "Revisa la consola y los logs de Render."
-    );
+    notificar(mensajeError(error, "No se pudo guardar el buque."));
   }
 };
 
@@ -152,8 +145,7 @@ const handleCrearBuque = async (e) => {
       setLicitaciones([...licitaciones, res.data]);
       setActiveTab('licitaciones'); // Te lleva directo a ver la subasta creada
     } catch (error) {
-      console.error("Error guardando licitación en BD:", error.response?.data || error);
-      alert("Error al guardar en PostgreSQL. Revisa la consola.");
+      notificar(mensajeError(error, "No se pudo publicar la subasta."));
       return;
     }
 
@@ -168,7 +160,7 @@ const handleCrearBuque = async (e) => {
 const toggleEstadoBuque = async (buque) => {
 
   if (buque.id == null) {
-    alert("Este buque no tiene un ID válido en PostgreSQL.");
+    notificar("No se pudo identificar el buque seleccionado.");
     return;
   }
 
@@ -176,55 +168,30 @@ const toggleEstadoBuque = async (buque) => {
   const nuevoEstado = esAtracado ? "En Ruta" : "Atracado";
 
   try {
-    const res = await logisticaApi.put(
+    await logisticaApi.put(
       `/buques/${buque.id}/estado`,
       { estado: nuevoEstado }
     );
 
-    console.log("Estado actualizado:", res.data);
-
     await cargarDatosNaviera();
 
   } catch (error) {
-    console.error("Error cambiando estado:", error);
-    console.error("Respuesta del backend:", error.response?.data);
-
-    alert("No se pudo actualizar el estado del buque.");
+    notificar(mensajeError(error, "No se pudo actualizar el estado del buque."));
   }
 };
 
 
 
-  // Cerrar, adjudicar subasta y asignarle el contenedor con el precio exacto al Exportador
+  // Cerrar y adjudicar: el servidor cobra al ganador, descuenta el espacio del buque
+  // y crea el contenedor a nombre del ganador (todo en una sola operación).
   const handleCerrarSubasta = async (licitacion) => {
     try {
-      await logisticaApi.put(`/licitaciones/${licitacion.id}/cerrar`);
+      const res = await logisticaApi.put(`/licitaciones/${licitacion.id}/cerrar`);
 
-      const prefijo = (licitacion.buque || 'MSCU').substring(0, 3).toUpperCase() + 'U';
-      const numAleatorio = Math.floor(100000 + Math.random() * 900000);
-      const codigoContenedor = `${prefijo}-${numAleatorio}`;
-      const montoFinal = Number(licitacion.pujaActual || licitacion.precioBase || 1000);
+      const codigoContenedor = res.data?.contenedorCodigo;
+      const montoFinal = Number(res.data?.monto ?? licitacion.pujaActual ?? licitacion.precioBase ?? 0);
 
-      // Guardamos el monto real adjudicado al final del estado separado por " | $"
-      await logisticaApi.post('/contenedores', {
-        codigo: codigoContenedor,
-        estado: `Adjudicado (${licitacion.espaciosTeu || 10} TEUs - ${licitacion.buque}) | $${montoFinal}`,
-        peso: 14500, // Peso estándar por unidad para no alterar la tarifa
-        tipo: 'Seca',
-        precio: montoFinal
-      });
-
-      setLicitaciones(licitaciones.map(l => 
-        l.id === licitacion.id ? { ...l, estado: 'ADJUDICADA' } : l
-      ));
-
-      setBuques(buques.map(b => {
-        if (b.nombre === licitacion.buque) {
-           return { ...b, teuDisponibles: Math.max(0, b.teuDisponibles - licitacion.espaciosTeu) };
-        }
-        return b;
-      }));
-
+      await cargarDatosNaviera();
       window.dispatchEvent(new Event('datosActualizados'));
 
       setSuccessMsg({
@@ -234,8 +201,7 @@ const toggleEstadoBuque = async (buque) => {
       });
 
     } catch (error) {
-      console.error("Error al adjudicar la subasta:", error);
-      alert("Hubo un problema al adjudicar la licitación en el servidor.");
+      notificar(mensajeError(error, "No se pudo adjudicar la licitación."));
     }
   };
 

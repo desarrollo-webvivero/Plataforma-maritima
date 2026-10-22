@@ -5,9 +5,13 @@ import com.maritima.logistica.model.Contenedor;
 import com.maritima.logistica.model.CargaSeca;
 import com.maritima.logistica.model.CargaRefrigerada;
 import com.maritima.logistica.model.CargaPeligrosa;
+import com.maritima.logistica.dto.ReservaRequest;
 import com.maritima.logistica.repository.ContenedorRepository;
+import com.maritima.logistica.repository.UsuarioExportadorRepository;
+import com.maritima.logistica.service.ReservaContenedorService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -20,9 +24,39 @@ public class ContenedorController {
     @Autowired
     private ContenedorRepository repository;
 
+    @Autowired
+    private UsuarioExportadorRepository usuarioRepository;
+
+    @Autowired
+    private ReservaContenedorService reservaService;
+
+    // Un EXPORTADOR solo ve SUS contenedores; el personal (puerto, naviera, admin) ve todos.
     @GetMapping
-    public List<Contenedor> obtenerContenedores() {
+    public List<Contenedor> obtenerContenedores(Authentication authentication) {
+
+        boolean esExportador = authentication != null
+                && authentication.getAuthorities().stream()
+                        .anyMatch(a -> a.getAuthority().equals("ROLE_EXPORTADOR"));
+
+        if (esExportador) {
+            return usuarioRepository.findByEmail(authentication.getName())
+                    .map(u -> repository.findByCodigoExportador(u.getCodigoExportador()))
+                    .orElse(List.of());
+        }
+
         return repository.findAll();
+    }
+
+    // El exportador reserva: el servidor calcula precio y TEUs, cobra, descuenta el
+    // espacio del buque y crea el contenedor a su nombre, todo en una transacción.
+    @PostMapping("/reservar")
+    public ResponseEntity<Contenedor> reservar(
+            @RequestBody ReservaRequest request,
+            Authentication authentication) {
+
+        return ResponseEntity.ok(
+            reservaService.reservar(authentication.getName(), request)
+        );
     }
 
     @PostMapping

@@ -44,6 +44,11 @@ public abstract class Contenedor {
     @Column(nullable = false, length = 50)
     private String estado;
 
+    // Código del exportador dueño de la carga (ej. "EXP-015").
+    // Los exportadores solo ven los contenedores que les pertenecen.
+    @Column(name = "codigo_exportador", length = 20)
+    private String codigoExportador;
+
     @Column(name = "fecha_creacion", updatable = false)
     private LocalDateTime fechaCreacion;
 

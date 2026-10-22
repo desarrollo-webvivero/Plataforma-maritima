@@ -1,37 +1,35 @@
 import { Wallet, Lock, Plus, ArrowUpRight, ArrowDownRight, History, Search, CreditCard, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { logisticaApi } from '../services/api';
-import { actualizarPerfilSesion } from '../services/session';
+import { notificar, mensajeError } from '../services/notificaciones';
 
 export default function Billetera() {
   const [busqueda, setBusqueda] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [montoRecarga, setMontoRecarga] = useState('');
+  const [recargando, setRecargando] = useState(false);
 
-  const usuarioActivo = JSON.parse(localStorage.getItem('exportadorActivo') || localStorage.getItem('usuarioActivo') || 'null');
-  const [saldo, setSaldoTokens] = useState(() => {
-    return usuarioActivo?.saldoInicial ? Number(usuarioActivo.saldoInicial) : 0;
-  });
-  const [transacciones, setTransacciones] = useState([
-    { id: 'TX-9982-A', fecha: '11 Oct 2026, 10:45 AM', concepto: 'Recarga de Billetera (T. Crédito)', estado: 'Completado', monto: '+5,000', tipo: 'ingreso' },
-    { id: 'TX-8473-B', fecha: '10 Oct 2026, 14:30 PM', concepto: 'Pago Adjudicación TEUs (MSC GÜLSÜN)', estado: 'Completado', monto: '-1,200', tipo: 'egreso' },
-    { id: 'TX-8472-B', fecha: '10 Oct 2026, 09:15 AM', concepto: 'Retención por Puja Activa (EVER GIVEN)', estado: 'Bloqueado', monto: '-2,500', tipo: 'bloqueado' }
-  ]);
+  // Los saldos vienen SIEMPRE del servidor (billetera del usuario autenticado)
+  const [saldo, setSaldoTokens] = useState(0);
+  const [bloqueado, setBloqueado] = useState(0);
 
-  // Consultar saldo real al backend al cargar la página
+  // Movimientos de esta sesión (el servidor aún no guarda historial)
+  const [transacciones, setTransacciones] = useState([]);
+
+  const aplicarResumen = (datos) => {
+    setSaldoTokens(Number(datos?.saldoDisponible ?? 0));
+    setBloqueado(Number(datos?.bloqueado ?? 0));
+  };
+
   useEffect(() => {
     const cargarSaldoReal = async () => {
       try {
-        const usr = JSON.parse(localStorage.getItem('exportadorActivo') || localStorage.getItem('usuarioActivo') || 'null');
-        if (usr?.id) {
-          const res = await logisticaApi.get(`/usuarios/${usr.id}/saldo`);
-          setSaldoTokens(Number(res.data.saldo));
-        } else {
-          const response = await logisticaApi.get('/billetera/saldo');
-          setSaldoTokens(response.data.saldoDisponible);
-        }
+        const res = await logisticaApi.get('/billetera/saldo');
+        aplicarResumen(res.data);
       } catch (error) {
-        console.error("Error al obtener saldo:", error);
+        if (error?.code !== 'ERR_CANCELED') {
+          notificar(mensajeError(error, 'No se pudo cargar tu saldo.'));
+        }
       }
     };
     cargarSaldoReal();
@@ -40,51 +38,35 @@ export default function Billetera() {
   const handleRecargar = async (e) => {
     e.preventDefault();
     const montoNumerico = parseFloat(montoRecarga);
-    if (!montoNumerico || montoNumerico <= 0) return;
+    if (!montoNumerico || montoNumerico <= 0 || recargando) return;
 
+    setRecargando(true);
     try {
-      const usr = JSON.parse(localStorage.getItem('exportadorActivo') || localStorage.getItem('usuarioActivo') || 'null');
-      let nuevoSaldoCalculado = 0;
+      const response = await logisticaApi.post('/billetera/recargar', {
+        monto: montoNumerico
+      });
+      aplicarResumen(response.data);
 
-      if (usr?.id) {
-        const resUsr = await logisticaApi.put(`/usuarios/${usr.id}/saldo`, {
-          recargar: montoNumerico
-        });
-        localStorage.setItem('exportadorActivo', JSON.stringify(resUsr.data));
-        actualizarPerfilSesion(resUsr.data);
-        nuevoSaldoCalculado = Number(resUsr.data.saldoInicial);
-      } else {
-        const response = await logisticaApi.post('/billetera/recargar', {
-          monto: montoNumerico
-        });
-        nuevoSaldoCalculado = response.data.saldoDisponible;
-      }
-
-      setSaldoTokens(nuevoSaldoCalculado);
-
-      // 3. Agregamos el registro visual en las transacciones
-      const nuevaTx = {
-        id: `TX-${Math.floor(1000 + Math.random() * 9000)}-A`,
-        fecha: 'Hoy, Actualizado',
-        concepto: 'Recarga de Billetera (Tarjeta / API Bancaria)',
-        estado: 'Completado',
-        monto: `+${montoNumerico.toLocaleString('en-US')}`,
-        tipo: 'ingreso'
-      };
-
-      setTransacciones([nuevaTx, ...transacciones]);
+      setTransacciones((prev) => [
+        {
+          id: `TX-${Math.floor(1000 + Math.random() * 9000)}-A`,
+          fecha: new Date().toLocaleString('es-GT'),
+          concepto: 'Recarga de Billetera',
+          estado: 'Completado',
+          monto: `+${montoNumerico.toLocaleString('en-US')}`,
+          tipo: 'ingreso'
+        },
+        ...prev
+      ]);
       setIsModalOpen(false);
       setMontoRecarga('');
 
-      // Disparamos evento global para actualizar barras de navegación o headers si existen
-      window.dispatchEvent(new Event('storage'));
       window.dispatchEvent(new Event('saldoActualizado'));
-
-      alert(`¡Recarga exitosa de ${montoNumerico.toLocaleString('en-US')} Tokens!`);
-
+      notificar(`Recarga exitosa de ${montoNumerico.toLocaleString('en-US')} Tokens.`, 'exito');
     } catch (error) {
-      console.error("Error al recargar en el servidor:", error);
-      alert("No se pudo conectar con el servidor para procesar la recarga.");
+      notificar(mensajeError(error, 'No se pudo procesar la recarga.'));
+    } finally {
+      setRecargando(false);
     }
   };
 
@@ -148,7 +130,7 @@ export default function Billetera() {
               <h3 className="text-slate-500 dark:text-slate-400 font-bold text-xs uppercase tracking-wider">Bloqueados en Pujas</h3>
             </div>
             <div className="flex items-baseline gap-2">
-              <span className="text-4xl font-black text-slate-900 dark:text-white transition-colors">2,500</span>
+              <span className="text-4xl font-black text-slate-900 dark:text-white transition-colors">{bloqueado.toLocaleString()}</span>
               <span className="text-sm font-bold text-slate-500 dark:text-slate-400">Tokens</span>
             </div>
             <p className="mt-3 text-sm text-amber-600 dark:text-amber-400 font-medium">
@@ -191,7 +173,16 @@ export default function Billetera() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-700 text-sm transition-colors">
-              {transacciones.map((tx, index) => (
+              {transacciones.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="p-6 text-center text-slate-500 dark:text-slate-400">
+                    Aún no hay movimientos en esta sesión.
+                  </td>
+                </tr>
+              )}
+              {transacciones
+                .filter((tx) => `${tx.id} ${tx.concepto}`.toLowerCase().includes(busqueda.toLowerCase()))
+                .map((tx, index) => (
                 <tr key={index} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                   <td className="p-4 font-mono font-medium text-slate-500 dark:text-slate-400">{tx.id}</td>
                   <td className="p-4 text-slate-700 dark:text-slate-300">{tx.fecha}</td>
@@ -268,9 +259,10 @@ export default function Billetera() {
                 </button>
                 <button 
                   type="submit" 
-                  className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-md shadow-sm transition-colors"
+                  disabled={recargando}
+                  className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-medium rounded-md shadow-sm transition-colors"
                 >
-                  Confirmar Recarga
+                  {recargando ? 'Procesando...' : 'Confirmar Recarga'}
                 </button>
               </div>
             </form>

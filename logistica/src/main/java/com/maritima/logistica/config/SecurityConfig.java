@@ -2,6 +2,7 @@ package com.maritima.logistica.config;
 
 import com.maritima.logistica.security.JwtAuthenticationFilter;
 
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletResponse;
 
 import org.springframework.context.annotation.Bean;
@@ -101,6 +102,9 @@ public CorsConfigurationSource corsConfigurationSource() {
             )
 
             .authorizeHttpRequests(auth -> auth
+                // Los errores internos deben verse como 500 y no como un 401 engañoso
+                .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
                 // Ping público para mantener el servicio despierto.
@@ -173,6 +177,10 @@ public CorsConfigurationSource corsConfigurationSource() {
 
                 .requestMatchers(HttpMethod.PUT, "/buques/**")
                 .hasAnyRole("NAVIERA", "ADMIN")
+
+                // Reserva de contenedor: el exportador paga y se crea a su nombre
+                .requestMatchers(HttpMethod.POST, "/contenedores/reservar")
+                .hasRole("EXPORTADOR")
 
                 // Crear y modificar contenedores
                 .requestMatchers(HttpMethod.POST, "/contenedores")

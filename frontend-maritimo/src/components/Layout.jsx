@@ -6,7 +6,7 @@ import {
   Box, CheckCircle2, X
 } from 'lucide-react';
 import { logisticaApi } from '../services/api';
-import { actualizarPerfilSesion } from '../services/session';
+import { limpiarSesion } from '../services/session';
 
 export default function Layout() {
   const navigate = useNavigate();
@@ -104,45 +104,25 @@ export default function Layout() {
         logisticaApi.get('/buques')
       ];
 
-      const userAct = JSON.parse(
-        localStorage.getItem('usuarioActivo') ||
-        localStorage.getItem('exportadorActivo') ||
-        'null'
-      );
-
       if (rolActual === 'EXPORTADOR') {
-        if (userAct?.id) {
-          promesas.push(
-            logisticaApi.get(`/usuarios/${userAct.id}/saldo`)
-          );
-        } else {
-          promesas.push(
-            logisticaApi.get('/billetera/saldo')
-          );
-        }
+        promesas.push(logisticaApi.get('/billetera/saldo'));
       }
 
       const [resCont, resLic, resBuques, resSaldo] =
         await Promise.allSettled(promesas);
 
-      if (resSaldo && resSaldo.status === 'fulfilled' && resSaldo.value.data?.saldo !== undefined) {
-        const saldoBD = Number(resSaldo.value.data.saldo);
-        setSaldo(saldoBD);
-        if (userAct && userAct.saldoInicial !== saldoBD) {
-          const actualizado = { ...userAct, saldoInicial: saldoBD };
-          localStorage.setItem('exportadorActivo', JSON.stringify(actualizado));
-          actualizarPerfilSesion(actualizado);
-        }
+      // El saldo mostrado es SIEMPRE el de la billetera del servidor (saldo gastable)
+      if (resSaldo && resSaldo.status === 'fulfilled' && resSaldo.value.data?.saldoDisponible !== undefined) {
+        setSaldo(Number(resSaldo.value.data.saldoDisponible));
       }
 
       const listaAlertas = [];
-      const nombreEmpresaActiva = (userAct?.empresa || userAct?.representante || '').toLowerCase();
 
       // 1. Si es EXPORTADOR: solo ve SUS propios contenedores y subastas abiertas para él
       if (rolActual === 'EXPORTADOR') {
         if (resCont.status === 'fulfilled' && Array.isArray(resCont.value.data)) {
+          // El servidor ya devuelve únicamente los contenedores de este exportador
           resCont.value.data
-            .filter(c => !nombreEmpresaActiva || (c.estado || '').toLowerCase().includes(nombreEmpresaActiva))
             .forEach((c) => {
               const est = (c.estado || '').toLowerCase();
               const retenido = Boolean(c.retenidoPorAduana) || est.includes('retenido');
@@ -216,15 +196,19 @@ export default function Layout() {
       }
 
       setNotificaciones(listaAlertas.slice(0, 10));
-    } catch (err) {
-      console.warn('Error actualizando notificaciones:', err);
+    } catch {
+      // Sondeo silencioso: se reintenta en el siguiente ciclo
     }
   };
 
   useEffect(() => {
     cargarDatosTiempoReal();
     const interval = setInterval(cargarDatosTiempoReal, 4000);
-    return () => clearInterval(interval);
+    window.addEventListener('saldoActualizado', cargarDatosTiempoReal);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('saldoActualizado', cargarDatosTiempoReal);
+    };
   }, [rolActual]);
 
   const marcarTodasLeidas = () => {
@@ -308,11 +292,7 @@ export default function Layout() {
   const IconoRol = infoPerfil.Icono;
 
   const cerrarSesion = () => {
-    localStorage.removeItem('userRole');
-    localStorage.removeItem('rol');
-    localStorage.removeItem('role');
-    localStorage.removeItem('usuarioActivo');
-    localStorage.removeItem('exportadorActivo');
+    limpiarSesion();
     navigate('/login');
   };
 

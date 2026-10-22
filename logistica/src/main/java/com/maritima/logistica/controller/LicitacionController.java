@@ -2,14 +2,12 @@ package com.maritima.logistica.controller;
 
 import com.maritima.logistica.model.Licitacion;
 import com.maritima.logistica.repository.LicitacionRepository;
-import com.maritima.logistica.repository.BuqueRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import com.maritima.logistica.model.UsuarioExportador;
-import com.maritima.logistica.repository.UsuarioExportadorRepository;
+import com.maritima.logistica.exception.NegocioException;
+import com.maritima.logistica.service.SubastaService;
 import org.springframework.security.core.Authentication;
-import org.springframework.http.HttpStatus;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -23,10 +21,7 @@ public class LicitacionController {
     private LicitacionRepository licitacionRepository;
 
     @Autowired
-    private BuqueRepository buqueRepository;
-
-    @Autowired
-    private UsuarioExportadorRepository usuarioRepository;
+    private SubastaService subastaService;
 
     // 1. Listar todas las subastas (Lo usan Naviera y Exportador)
     @GetMapping
@@ -36,115 +31,55 @@ public class LicitacionController {
 
     // 2. Publicar nueva subasta (Lo usa Naviera)
     @PostMapping
-    public ResponseEntity<Licitacion> crearSubasta(@RequestBody Licitacion nueva) {
-        if (nueva.getEstado() == null || nueva.getEstado().isEmpty()) {
-            nueva.setEstado("ACTIVA");
+    public ResponseEntity<?> crearSubasta(@RequestBody Licitacion nueva) {
+
+        if (nueva.getPrecioBase() == null
+                || nueva.getPrecioBase().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new NegocioException("El precio base debe ser mayor a cero.");
         }
-        if (nueva.getPujaActual() == null) {
-            nueva.setPujaActual(nueva.getPrecioBase());
-        }
+
+        // Estos campos los controla el servidor, nunca el cliente
+        nueva.setId(null);
+        nueva.setEstado("ACTIVA");
+        nueva.setMejorPostor(null);
+        nueva.setPujaActual(nueva.getPrecioBase());
+
         return ResponseEntity.ok(licitacionRepository.save(nueva));
     }
 
-    // 3. Registrar una nueva puja (Lo usa el Cliente Exportador)
-
+    // 3. Registrar una puja (Lo usa el Exportador). El exportador sale del JWT.
     @PostMapping("/{id}/pujar")
     public ResponseEntity<?> realizarPuja(
             @PathVariable Long id,
             @RequestBody Map<String, Object> payload,
             Authentication authentication) {
 
-        // 1. Comprobar que exista un usuario autenticado
-        if (authentication == null || !authentication.isAuthenticated()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body("Debes iniciar sesión para realizar una puja.");
-        }
-
-        // 2. Buscar al exportador mediante el correo del JWT
-        UsuarioExportador usuario = usuarioRepository
-                .findByEmail(authentication.getName())
-                .orElse(null);
-
-        if (usuario == null) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body("El usuario autenticado no existe.");
-        }
-
-        // 3. Obtener su identificador real desde PostgreSQL
-        String codigoExportador = usuario.getCodigoExportador();
-
-        // 4. Validar el monto recibido
         if (payload == null || payload.get("monto") == null) {
-            return ResponseEntity.badRequest()
-                    .body("Debes indicar el monto de la puja.");
+            throw new NegocioException("Debes indicar el monto de la puja.");
         }
 
-        BigDecimal nuevaPuja;
-
+        BigDecimal monto;
         try {
-            nuevaPuja = new BigDecimal(payload.get("monto").toString());
+            monto = new BigDecimal(payload.get("monto").toString());
         } catch (NumberFormatException ex) {
-            return ResponseEntity.badRequest()
-                    .body("El monto de la puja no es válido.");
+            throw new NegocioException("El monto de la puja no es válido.");
         }
 
-        if (nuevaPuja.compareTo(BigDecimal.ZERO) <= 0) {
-            return ResponseEntity.badRequest()
-                    .body("La puja debe ser mayor a cero.");
-        }
-
-        // 5. Buscar la licitación
-        return licitacionRepository.findById(id).map(lic -> {
-
-            if (!"ACTIVA".equalsIgnoreCase(lic.getEstado())) {
-                return ResponseEntity.badRequest()
-                        .body("La subasta ya no está activa.");
-            }
-
-            BigDecimal actual = lic.getPujaActual() != null
-                    ? lic.getPujaActual()
-                    : lic.getPrecioBase();
-
-            if (actual == null) {
-                return ResponseEntity.badRequest()
-                        .body("La licitación no tiene un precio base válido.");
-            }
-
-            if (nuevaPuja.compareTo(actual) <= 0) {
-                return ResponseEntity.badRequest()
-                        .body("La puja debe superar el monto actual.");
-            }
-
-            // 6. Registrar la puja con la identidad del JWT
-            lic.setPujaActual(nuevaPuja);
-            lic.setMejorPostor(codigoExportador);
-
-            return ResponseEntity.ok(licitacionRepository.save(lic));
-
-        }).orElse(ResponseEntity.notFound().build());
+        return ResponseEntity.ok(
+            subastaService.pujar(authentication.getName(), id, monto)
+        );
     }
 
-
-    // 4. Adjudicar y cerrar subasta (Lo usa Naviera)
+    // 4. Adjudicar y cerrar subasta (Lo usa Naviera): cobra al ganador y le crea su contenedor
     @PutMapping("/{id}/cerrar")
-    public ResponseEntity<Licitacion> cerrarSubasta(@PathVariable Long id) {
-        return licitacionRepository.findById(id).map(lic -> {
-            lic.setEstado("ADJUDICADA");
+    public ResponseEntity<?> cerrarSubasta(@PathVariable Long id) {
 
-            // 1. Descontar la capacidad del buque
-            if (lic.getBuque() != null) {
-                buqueRepository.findAll().stream()
-                    .filter(b -> b.getNombre().equalsIgnoreCase(lic.getBuque()))
-                    .findFirst()
-                    .ifPresent(buque -> {
-                        int capacidadActual = buque.getTeuDisponibles() != null ? buque.getTeuDisponibles() : 0;
-                        int aDescontar = lic.getEspaciosTeu() != null ? lic.getEspaciosTeu() : 0;
-                        int nuevaCapacidad = Math.max(0, capacidadActual - aDescontar);
-                        buque.setTeuDisponibles(nuevaCapacidad);
-                        buqueRepository.save(buque);
-                    });
-            }
-            return ResponseEntity.ok(licitacionRepository.save(lic));
-        }).orElse(ResponseEntity.notFound().build());
+        SubastaService.Cierre cierre = subastaService.cerrar(id);
+
+        return ResponseEntity.ok(Map.of(
+            "licitacion", cierre.licitacion(),
+            "contenedorCodigo", cierre.contenedorCodigo(),
+            "monto", cierre.monto()
+        ));
     }
 }

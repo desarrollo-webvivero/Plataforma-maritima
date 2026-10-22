@@ -44,8 +44,8 @@ export default function Landing() {
       setUltimaActualizacion(
         ahora.toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
       );
-    } catch (err) {
-      console.warn('Mostrando portal en modo sin conexión:', err);
+    } catch {
+      // Portal en modo sin conexión: se muestran los valores por defecto
     } finally {
       setIsLoading(false);
     }

@@ -6,6 +6,8 @@ import {
   KeyRound, RefreshCw, X
 } from 'lucide-react';
 import { logisticaApi } from '../services/api';
+import { guardarSesionLogin, fijarRol } from '../services/session';
+import { mensajeError } from '../services/notificaciones';
 
 export default function Registro() {
   const navigate = useNavigate();
@@ -77,11 +79,7 @@ export default function Registro() {
       setModalInfo('');
       setMostrarModal(true);
     } catch (error) {
-      console.error('Error solicitando código:', error);
-      setErrorMsg(
-        error.response?.data?.error ||
-        'No se pudo conectar con el servidor. Intenta nuevamente en unos segundos.'
-      );
+      setErrorMsg(mensajeError(error, 'No se pudo enviar el código. Intenta nuevamente.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -96,7 +94,7 @@ export default function Registro() {
       await pedirCodigo();
       setModalInfo('Si el correo es válido, enviamos un nuevo código.');
     } catch (error) {
-      setModalError(error.response?.data?.error || 'No se pudo reenviar el código.');
+      setModalError(mensajeError(error, 'No se pudo reenviar el código.'));
     } finally {
       setReenviando(false);
     }
@@ -127,20 +125,17 @@ export default function Registro() {
         codigoVerificacion: codigo
       });
 
-      const nuevoExportador = resUsuario.data;
-
-      // El registro no inicia sesión: el JWT se obtiene únicamente mediante /usuarios/login.
-      localStorage.setItem('exportadorActivo', JSON.stringify(nuevoExportador));
+      // El servidor devuelve la sesión (JWT) igual que en el login:
+      // el usuario entra directo a su panel con sus propios datos.
+      const nuevoExportador = guardarSesionLogin(resUsuario.data);
+      fijarRol(nuevoExportador.rol);
+      window.dispatchEvent(new Event('storage'));
 
       setMostrarModal(false);
       setFormData((prev) => ({ ...prev, password: '', confirmarPassword: '' }));
       setCuentaCreada(nuevoExportador);
     } catch (error) {
-      console.error('Error registrando exportador:', error);
-      setModalError(
-        error.response?.data?.error ||
-        'No se pudo conectar con el servidor. Intenta nuevamente.'
-      );
+      setModalError(mensajeError(error, 'No se pudo completar el registro. Intenta nuevamente.'));
     } finally {
       setVerificando(false);
     }
@@ -440,7 +435,7 @@ export default function Registro() {
 
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
                 <button
-                  onClick={() => navigate('/dashboard')}
+                  onClick={() => navigate('/dashboard', { state: { rol: 'EXPORTADOR' } })}
                   className="w-full sm:w-auto px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-lg shadow-blue-600/25 cursor-pointer flex items-center justify-center gap-2"
                 >
                   Ir a mi Panel de Exportador

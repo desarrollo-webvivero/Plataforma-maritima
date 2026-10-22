@@ -5,7 +5,8 @@ import {
   AlertTriangle, CheckCircle2, X, Ship, Anchor, ArrowRight
 } from 'lucide-react';
 import { logisticaApi } from '../services/api';
-import { obtenerUsuario, actualizarPerfilSesion } from '../services/session';
+import { obtenerUsuario } from '../services/session';
+import { mensajeError } from '../services/notificaciones';
 
 export default function DashboardExportador() {
   const navigate = useNavigate();
@@ -32,17 +33,19 @@ export default function DashboardExportador() {
   const cargarDatosDashboard = async () => {
     try {
 
-    const usrLocal = obtenerUsuario();
-
+    // Todo viene del servidor y de la sesión del usuario autenticado:
+    // /contenedores devuelve solo SUS cargas y /billetera/saldo SU billetera.
     const [resCont, resLic, resBuques, resSaldo] =
       await Promise.allSettled([
         logisticaApi.get('/contenedores'),
         logisticaApi.get('/licitaciones'),
         logisticaApi.get('/buques'),
-        usrLocal?.id
-          ? logisticaApi.get(`/usuarios/${usrLocal.id}/saldo`)
-          : logisticaApi.get('/billetera/saldo')
+        logisticaApi.get('/billetera/saldo')
       ]);
+
+      if (resSaldo.status === 'fulfilled') {
+        setSaldo(Number(resSaldo.value.data?.saldoDisponible ?? 0));
+      }
 
 
       if (resCont.status === 'fulfilled' && Array.isArray(resCont.value.data)) {
@@ -80,8 +83,8 @@ export default function DashboardExportador() {
       if (guardado) {
         setExportadorInfo(guardado);
       }
-    } catch (error) {
-      console.error('Error cargando panel del exportador:', error);
+    } catch {
+      // Sondeo silencioso: se reintenta automáticamente
     }
   };
 
@@ -163,54 +166,22 @@ export default function DashboardExportador() {
     setProcesandoPago(true);
 
     try {
-   // 1. Descontar saldo directamente del usuario exportador en PostgreSQL
-   if (exportadorInfo?.id) {
-     const resUsr = await logisticaApi.put(`/usuarios/${exportadorInfo.id}/saldo`, {
-       descontar: cotizacionActual
-     });
-     localStorage.setItem('exportadorActivo', JSON.stringify(resUsr.data));
-     actualizarPerfilSesion(resUsr.data);
-     setSaldo(Number(resUsr.data.saldoInicial));
-   } else {
-     await logisticaApi.post('/billetera/descontar', { monto: cotizacionActual });
-   }
-
-   // 2. Restar los TEUs correspondientes al buque seleccionado en PostgreSQL
-   const nuevosTeusDisponibles = Math.max(0, teusLibresBuque - teusRequeridos);
-   const buqueActualizado = {
-     ...buqueActualObj,
-     teuDisponibles: nuevosTeusDisponibles
-   };
-   await logisticaApi.put(`/buques/${buqueActualObj.id}`, buqueActualizado);
-
-      // 3. Crear el nuevo contenedor vinculado al buque y al exportador
-      const prefijos = ['MAEU', 'MSCU', 'CMAU', 'HLCU'];
-      const prefijo = prefijos[Math.floor(Math.random() * prefijos.length)];
-      const numeroRandom = Math.floor(100000 + Math.random() * 900000);
-      const codigoContenedor = `${prefijo}-${numeroRandom}`;
-
-      const nombreTitular = exportadorInfo?.empresa || exportadorInfo?.representante || 'Exportador B2B';
-
-      const nuevoContenedor = {
-        codigo: codigoContenedor,
-        pesoKg: pesoNum,
-        tipoContenedor: `${tamanoTeu} Pies (${teusRequeridos} TEU) - ${naturaleza}`,
-        ubicacionActual: `Muelle #1 (${buqueActualObj.nombre})`,
-        estado: `Embarcado (${teusRequeridos} TEU - ${buqueActualObj.nombre} • ${nombreTitular}) | $${cotizacionActual}`,
-        retenidoPorAduana: false
-      };
-
-      await logisticaApi.post('/contenedores', nuevoContenedor);
+      // Una sola llamada: el servidor calcula el precio, cobra, descuenta el espacio
+      // del buque y crea el contenedor a tu nombre (todo o nada).
+      await logisticaApi.post('/contenedores/reservar', {
+        buqueId: buqueActualObj.id,
+        tamanoTeu: Number(tamanoTeu),
+        naturaleza,
+        pesoKg: pesoNum
+      });
 
       // Actualizar estado local y cerrar modal
       await cargarDatosDashboard();
       window.dispatchEvent(new Event('storage'));
+      window.dispatchEvent(new Event('saldoActualizado'));
       setMostrarModal(false);
     } catch (err) {
-      console.error('Error registrando contenedor:', err);
-      setErrorModal(
-        err.response?.data?.error || 'Error al procesar la reserva con el servidor.'
-      );
+      setErrorModal(mensajeError(err, 'No se pudo procesar la reserva. Intenta nuevamente.'));
     } finally {
       setProcesandoPago(false);
     }

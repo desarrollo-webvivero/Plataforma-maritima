@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Gavel, Ship, Clock, TrendingUp, Wallet, CheckCircle2, RefreshCw } from 'lucide-react';
 import { logisticaApi } from '../services/api';
-import { actualizarPerfilSesion } from '../services/session';
+import { notificar, mensajeError } from '../services/notificaciones';
 
 export default function SubastaEnVivo() {
   const [licitaciones, setLicitaciones] = useState([]);
@@ -19,8 +19,8 @@ export default function SubastaEnVivo() {
       const activas = resLic.data.filter(l => l.estado !== 'ADJUDICADA');
       setLicitaciones(activas);
       setSaldoDisponible(resSaldo.data.saldoDisponible);
-    } catch (err) {
-      console.error("Error cargando subastas en vivo:", err);
+    } catch {
+      // Sondeo silencioso: si falla, se reintenta en el siguiente ciclo
     }
   };
 
@@ -31,57 +31,21 @@ export default function SubastaEnVivo() {
   }, []);
 
   const handlePujar = async (licitacion) => {
-    // 1. Verificar saldo real del exportador antes de permitir la puja
-    const usuarioAct = JSON.parse(localStorage.getItem('exportadorActivo') || localStorage.getItem('usuarioActivo') || 'null');
-    let saldoActual = usuarioAct && typeof usuarioAct.saldoInicial === 'number' ? Number(usuarioAct.saldoInicial) : 0;
-
-    try {
-      const resS = await logisticaApi.get('/billetera/saldo');
-      if (saldoActual <= 0 && typeof resS.data?.saldo === 'number') {
-        saldoActual = Number(resS.data.saldo);
-      }
-    } catch {}
-
     const montoActual = Number(licitacion.pujaActual || licitacion.precioBase || 1000);
     const montoIngresado = Number(montosPuja[licitacion.id] || (montoActual + 100));
 
-    if (montoIngresado <= montoActual) {
-      alert(`Tu puja debe ser mayor a la oferta actual de $${montoActual.toLocaleString('en-US')}`);
-      return;
-    }
-
-    if (saldoActual <= 0 || montoIngresado > saldoActual) {
-      alert(`Saldo insuficiente: Tienes $${saldoActual.toLocaleString('en-US', { minimumFractionDigits: 2 })} disponibles y tu puja es de $${Number(montoIngresado).toLocaleString('en-US', { minimumFractionDigits: 2 })}. Recarga tu Billetera Virtual primero.`);
+    if (!montoIngresado || montoIngresado <= montoActual) {
+      notificar(`Tu puja debe ser mayor a la oferta actual de $${montoActual.toLocaleString('en-US')}.`);
       return;
     }
 
     try {
-      // 1. Guardamos la puja en PostgreSQL
-      const resPuja = await logisticaApi.post(`/licitaciones/${licitacion.id}/pujar`, {
-        monto: montoIngresado,
-        exportadorId: 'EXP-001'
-      });
-
-      // 2. Descontamos el saldo en la billetera real
-      const resBilletera = await logisticaApi.post('/billetera/descontar', {
+      // El servidor valida el saldo, retiene el dinero y registra al mejor postor
+      // usando la identidad del token (no se envía ningún id desde aquí).
+      await logisticaApi.post(`/licitaciones/${licitacion.id}/pujar`, {
         monto: montoIngresado
       });
 
-      try {
-        await logisticaApi.post('/billetera/descontar', { monto: Number(montoIngresado) });
-      } catch {}
-
-      if (usuarioAct) {
-        const nuevoSaldo = Math.max(0, saldoActual - Number(montoIngresado));
-        const actualizado = { ...usuarioAct, saldoInicial: nuevoSaldo };
-        localStorage.setItem('exportadorActivo', JSON.stringify(actualizado));
-        actualizarPerfilSesion(actualizado);
-        window.dispatchEvent(new Event('storage'));
-      }
-
-      setSaldoDisponible(resBilletera.data.saldoDisponible);
-      
-      // 3. Recargamos desde PostgreSQL para confirmar que quedó escrito en BD
       await cargarDatos();
       window.dispatchEvent(new Event('saldoActualizado'));
       window.dispatchEvent(new Event('datosActualizados'));
@@ -92,7 +56,7 @@ export default function SubastaEnVivo() {
         teus: licitacion.espaciosTeu
       });
     } catch (err) {
-      alert(err.response?.data || "Error al procesar la puja.");
+      notificar(mensajeError(err, 'No se pudo procesar la puja.'));
     }
   };
 
@@ -215,6 +179,9 @@ export default function SubastaEnVivo() {
                 ${Number(mensajeExito.monto).toLocaleString('en-US', { minimumFractionDigits: 2 })}
               </span>
             </div>
+            <p className="text-xs text-slate-400 mb-4">
+              Este monto queda retenido en tu billetera hasta que la naviera cierre la subasta.
+            </p>
             <button
               onClick={() => setMensajeExito(null)}
               className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm cursor-pointer"

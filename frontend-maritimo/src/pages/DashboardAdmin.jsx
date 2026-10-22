@@ -4,6 +4,7 @@ import {
   RefreshCw, Search, Mail, Building2, KeyRound, CheckCircle2, AlertCircle
 } from 'lucide-react';
 import { logisticaApi } from '../services/api';
+import { notificar, mensajeError } from '../services/notificaciones';
 
 export default function DashboardAdmin() {
   const [usuarios, setUsuarios] = useState([]);
@@ -32,7 +33,7 @@ export default function DashboardAdmin() {
         setUsuarios(res.data);
       }
     } catch (error) {
-      console.error('Error cargando usuarios:', error);
+      if (error?.code !== 'ERR_CANCELED') notificar(mensajeError(error, 'No se pudo cargar la lista de usuarios.'));
     } finally {
       setIsLoading(false);
     }
@@ -74,14 +75,14 @@ export default function DashboardAdmin() {
 
   const handleEliminar = async (u) => {
     if (u.email === 'admin@portlogistics.com') {
-      alert('No puedes eliminar la cuenta principal de Super Administrador.');
+      notificar('No puedes eliminar la cuenta principal de Super Administrador.');
       return;
     }
     try {
       await logisticaApi.delete(`/usuarios/${u.id}`);
       setUsuarios(prev => prev.filter(item => item.id !== u.id));
     } catch (err) {
-      console.error('Error eliminando usuario:', err);
+      notificar(mensajeError(err, 'No se pudo eliminar el usuario.'));
     }
   };
 

@@ -6,5 +6,6 @@ import java.util.Optional;
 
 public interface UsuarioExportadorRepository extends JpaRepository<UsuarioExportador, Long> {
     Optional<UsuarioExportador> findByEmail(String email);
+    Optional<UsuarioExportador> findByCodigoExportador(String codigoExportador);
     Optional<UsuarioExportador> findByEmailAndPassword(String email, String password);
 }
