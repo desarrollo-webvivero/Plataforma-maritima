@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Anchor, Building2, User, Mail, Lock, Phone, FileText,
-  Wallet, ArrowLeft, CheckCircle2, ShieldCheck, ArrowRight, AlertCircle
+  Wallet, ArrowLeft, CheckCircle2, ShieldCheck, ArrowRight, AlertCircle,
+  KeyRound, RefreshCw, X
 } from 'lucide-react';
 import { logisticaApi } from '../services/api';
 
@@ -24,11 +25,35 @@ export default function Registro() {
   const [errorMsg, setErrorMsg] = useState('');
   const [cuentaCreada, setCuentaCreada] = useState(null);
 
+  // Ventana de verificación por correo
+  const [mostrarModal, setMostrarModal] = useState(false);
+  const [codigo, setCodigo] = useState('');
+  const [modalError, setModalError] = useState('');
+  const [modalInfo, setModalInfo] = useState('');
+  const [verificando, setVerificando] = useState(false);
+  const [reenviando, setReenviando] = useState(false);
+  const [segundosReenvio, setSegundosReenvio] = useState(0);
+
+  // Cuenta regresiva para poder reenviar el código
+  useEffect(() => {
+    if (segundosReenvio <= 0) return undefined;
+    const id = setTimeout(() => setSegundosReenvio((s) => s - 1), 1000);
+    return () => clearTimeout(id);
+  }, [segundosReenvio]);
+
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
     setErrorMsg('');
   };
 
+  const pedirCodigo = async () => {
+    await logisticaApi.post('/usuarios/registro/codigo', {
+      email: formData.email.trim().toLowerCase()
+    });
+    setSegundosReenvio(60);
+  };
+
+  // PASO 1: validar el formulario y enviar el código al correo
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
@@ -38,52 +63,86 @@ export default function Registro() {
       return;
     }
 
-    if (formData.password.length < 4) {
-      setErrorMsg('La contraseña debe tener al menos 4 caracteres.');
+    if (formData.password.length < 12) {
+      setErrorMsg('La contraseña debe tener al menos 12 caracteres.');
       return;
     }
 
     setIsSubmitting(true);
 
     try {
-      // 1. Guardamos el nuevo Exportador en PostgreSQL
+      await pedirCodigo();
+      setCodigo('');
+      setModalError('');
+      setModalInfo('');
+      setMostrarModal(true);
+    } catch (error) {
+      console.error('Error solicitando código:', error);
+      setErrorMsg(
+        error.response?.data?.error ||
+        'No se pudo conectar con el servidor. Intenta nuevamente en unos segundos.'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const reenviarCodigo = async () => {
+    if (segundosReenvio > 0 || reenviando) return;
+    setReenviando(true);
+    setModalError('');
+    setModalInfo('');
+    try {
+      await pedirCodigo();
+      setModalInfo('Si el correo es válido, enviamos un nuevo código.');
+    } catch (error) {
+      setModalError(error.response?.data?.error || 'No se pudo reenviar el código.');
+    } finally {
+      setReenviando(false);
+    }
+  };
+
+  // PASO 2: enviar el código junto con los datos para crear la cuenta
+  const confirmarCodigo = async (e) => {
+    e.preventDefault();
+    setModalError('');
+    setModalInfo('');
+
+    if (!/^\d{6}$/.test(codigo)) {
+      setModalError('Ingresa los 6 dígitos del código.');
+      return;
+    }
+
+    setVerificando(true);
+
+    try {
       const resUsuario = await logisticaApi.post('/usuarios/registro', {
         empresa: formData.empresa,
         nit: formData.nit,
         representante: formData.representante,
-        email: formData.email,
+        email: formData.email.trim().toLowerCase(),
         telefono: formData.telefono,
         password: formData.password,
-        rol: 'EXPORTADOR',
-        saldoInicial: Number(formData.saldoInicial || 5000)
+        saldoInicial: Number(formData.saldoInicial || 10000),
+        codigoVerificacion: codigo
       });
 
       const nuevoExportador = resUsuario.data;
 
-      // 2. Sincronizamos/abonamos el saldo inicial en la Billetera Virtual de PostgreSQL
-      try {
-        if (Number(formData.saldoInicial) > 0) {
-          await logisticaApi.post('/billetera/recargar', {
-            monto: Number(formData.saldoInicial)
-          });
-        }
-      } catch (errBilletera) {
-        console.warn('Billetera ya inicializada:', errBilletera);
-      }
-
-      // 3. Guardamos la sesión activa para que pueda entrar directo al Dashboard
       // El registro no inicia sesión: el JWT se obtiene únicamente mediante /usuarios/login.
       localStorage.setItem('exportadorActivo', JSON.stringify(nuevoExportador));
 
+      setMostrarModal(false);
+      setFormData((prev) => ({ ...prev, password: '', confirmarPassword: '' }));
       setCuentaCreada(nuevoExportador);
     } catch (error) {
       console.error('Error registrando exportador:', error);
-      const mensajeBackend = error.response?.data?.error;
-      setErrorMsg(
-        mensajeBackend || 'No se pudo conectar con el servidor. Verifica que el contenedor logistica esté corriendo.'
+      setModalError(
+        error.response?.data?.error ||
+        'No se pudo conectar con el servidor. Intenta nuevamente.'
       );
     } finally {
-      setIsSubmitting(false);
+      setVerificando(false);
     }
   };
 
@@ -280,7 +339,10 @@ export default function Registro() {
                         type="password"
                         name="password"
                         required
-                        placeholder="••••••••"
+                        minLength={12}
+                        maxLength={72}
+                        autoComplete="new-password"
+                        placeholder="Mínimo 12 caracteres"
                         value={formData.password}
                         onChange={handleChange}
                         className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-sm text-white focus:outline-none focus:border-blue-500"
@@ -331,7 +393,7 @@ export default function Registro() {
                     disabled={isSubmitting}
                     className="w-full sm:w-auto px-7 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-lg shadow-blue-600/25 transition-all cursor-pointer flex items-center justify-center gap-2"
                   >
-                    {isSubmitting ? 'Guardando en Base de Datos...' : 'Registrar Exportador'}
+                    {isSubmitting ? 'Enviando código...' : 'Enviar código de verificación'}
                     <ArrowRight size={15} />
                   </button>
                 </div>
@@ -395,6 +457,105 @@ export default function Registro() {
           )}
 
         </div>
+
+        {/* VENTANA DE VERIFICACIÓN POR CORREO */}
+        {mostrarModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="titulo-verificacion"
+          >
+            <div className="w-full max-w-md bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
+              <div className="px-6 py-5 bg-slate-900/70 border-b border-slate-700 flex items-start justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                    <KeyRound size={20} />
+                  </div>
+                  <div>
+                    <h2 id="titulo-verificacion" className="text-lg font-black text-white">
+                      Verifica tu correo
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Si el correo es válido, enviamos un código de 6 dígitos a{' '}
+                      <span className="text-slate-200 font-bold break-all">{formData.email}</span>
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMostrarModal(false)}
+                  aria-label="Cerrar"
+                  className="text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <form onSubmit={confirmarCodigo} className="p-6 space-y-4">
+                {modalError && (
+                  <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-bold flex items-center gap-2">
+                    <AlertCircle size={16} className="shrink-0" />
+                    {modalError}
+                  </div>
+                )}
+                {modalInfo && (
+                  <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
+                    {modalInfo}
+                  </div>
+                )}
+
+                <div>
+                  <label
+                    htmlFor="codigoVerificacion"
+                    className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5"
+                  >
+                    Código de verificación
+                  </label>
+                  <input
+                    id="codigoVerificacion"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    autoFocus
+                    placeholder="000000"
+                    value={codigo}
+                    onChange={(e) => {
+                      setCodigo(e.target.value.replace(/\D/g, '').slice(0, 6));
+                      setModalError('');
+                    }}
+                    className="w-full px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-center text-2xl font-mono font-black tracking-[0.5em] text-white focus:outline-none focus:border-blue-500"
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1.5">
+                    El código vence en 10 minutos. Revisa también tu carpeta de spam.
+                  </p>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={verificando || codigo.length !== 6}
+                  className="w-full px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-lg shadow-blue-600/25 transition-all cursor-pointer flex items-center justify-center gap-2"
+                >
+                  {verificando ? 'Verificando...' : 'Verificar y crear cuenta'}
+                  <ArrowRight size={15} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={reenviarCodigo}
+                  disabled={segundosReenvio > 0 || reenviando}
+                  className="w-full text-xs font-bold text-slate-400 hover:text-blue-400 disabled:opacity-60 disabled:hover:text-slate-400 transition-colors cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <RefreshCw size={13} />
+                  {segundosReenvio > 0
+                    ? `Reenviar código en ${segundosReenvio} s`
+                    : 'Reenviar código'}
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
