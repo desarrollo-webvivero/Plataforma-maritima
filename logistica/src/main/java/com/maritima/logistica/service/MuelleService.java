@@ -1,6 +1,7 @@
 package com.maritima.logistica.service;
 
 import com.maritima.logistica.client.AduanaClient;
+import com.maritima.logistica.exception.NegocioException;
 import com.maritima.logistica.model.Contenedor;
 import com.maritima.logistica.model.HistorialContenedor;
 import com.maritima.logistica.repository.ContenedorRepository;
@@ -37,15 +38,20 @@ public class MuelleService {
     public Contenedor procesarGateOut(Long contenedorId, Integer usuarioId) {
         // 1. Verificación en Logística
         Contenedor contenedor = contenedorRepository.findById(contenedorId)
-                .orElseThrow(() -> new RuntimeException("Contenedor no encontrado en el sistema."));
+                .orElseThrow(() -> new NegocioException("Contenedor no encontrado en el sistema."));
 
         if ("GATE_OUT".equalsIgnoreCase(contenedor.getEstado())) {
-            throw new RuntimeException("Operación denegada: El contenedor ya registró su salida del puerto.");
+            throw new NegocioException("Operación denegada: El contenedor ya registró su salida del puerto.");
         }
 
-        // 2. Validación Cruzada con Aduanas (Llamada HTTP síncrona)
+        // 2a. Retención registrada en Logística (dictamen rojo): se bloquea sin depender de la red
+        if (OperacionesPuertoService.estaRetenido(contenedor)) {
+            throw new NegocioException("ALERTA LEGAL: Operación denegada. El contenedor posee una retención aduanera activa.");
+        }
+
+        // 2b. Validación Cruzada con Aduanas (Llamada HTTP síncrona)
         if (aduanaClient.tieneBloqueoActivo(contenedor.getCodigo())) {
-            throw new RuntimeException("ALERTA LEGAL: Operación denegada. El contenedor posee una retención aduanera activa.");
+            throw new NegocioException("ALERTA LEGAL: Operación denegada. El contenedor posee una retención aduanera activa.");
         }
 
         String estadoAnterior = contenedor.getEstado();

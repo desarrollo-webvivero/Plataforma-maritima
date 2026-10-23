@@ -119,6 +119,14 @@ public CorsConfigurationSource corsConfigurationSource() {
                     "/api/logistica/ping"
                 ).permitAll()
 
+                // Resumen público de la página de inicio (sin sesión).
+                // Ruta exacta, solo GET, devuelve datos mínimos (ver PublicoController).
+                // Debe ir ANTES de las reglas de /api/logistica/usuarios/**
+                .requestMatchers(
+                    HttpMethod.GET,
+                    "/api/logistica/publico/resumen"
+                ).permitAll()
+
                 
                 .requestMatchers(
                     HttpMethod.GET,
@@ -185,6 +193,22 @@ public CorsConfigurationSource corsConfigurationSource() {
                 // Crear y modificar contenedores
                 .requestMatchers(HttpMethod.POST, "/contenedores")
                 .hasAnyRole("PUERTO", "ADMIN")
+
+                // Semáforo aduanero: solo el oficial de Aduanas (y ADMIN) emite dictámenes.
+                // El puerto NO puede liberar ni retener (separación de funciones).
+                .requestMatchers(HttpMethod.PUT, "/contenedores/*/dictamen")
+                .hasAnyRole("OFICIAL_ADUANAS", "ADMIN")
+
+                // Operaciones de patio
+                .requestMatchers(HttpMethod.PUT, "/contenedores/*/muelle")
+                .hasAnyRole("PUERTO", "ADMIN")
+
+                .requestMatchers(HttpMethod.POST, "/contenedores/*/ingreso-patio")
+                .hasAnyRole("PUERTO", "ADMIN")
+
+                // Cambio manual de estado con texto libre: solo ADMIN
+                .requestMatchers(HttpMethod.PUT, "/contenedores/*/estado")
+                .hasRole("ADMIN")
 
                 .requestMatchers(HttpMethod.PUT, "/contenedores/**")
                 .hasAnyRole("PUERTO", "ADMIN")

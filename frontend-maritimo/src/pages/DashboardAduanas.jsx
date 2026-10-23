@@ -4,6 +4,7 @@ import {
   Container, CheckCircle2, AlertOctagon, Scale, FileText, X, Lock, Unlock
 } from 'lucide-react';
 import { logisticaApi } from '../services/api';
+import { notificar, mensajeError } from '../services/notificaciones';
 
 export default function DashboardAduanas() {
   const [contenedores, setContenedores] = useState([]);
@@ -50,18 +51,16 @@ export default function DashboardAduanas() {
     return estadoRaw.split(' | $')[0];
   };
 
-  // Preservar sufijo de precio "| $1500" al actualizar el estado aduanero
-  const obtenerSufijoPrecio = (estadoRaw) => {
-    if (estadoRaw && estadoRaw.includes(' | $')) {
-      return ' | $' + estadoRaw.split(' | $')[1];
-    }
-    return '';
-  };
-
-  // Clasificación del Semáforo Fiscal según el estado del contenedor
+  // Clasificación del Semáforo Fiscal. La fuente de verdad es el dictamen guardado por el servidor;
+  // el texto del estado solo se usa como respaldo para registros antiguos sin dictamen.
   const obtenerColorSemaforo = (c) => {
+    const dictamen = String(c.dictamenAduanero || '').toUpperCase();
+    if (dictamen === 'ROJO' || dictamen === 'AMARILLO' || dictamen === 'VERDE') {
+      return dictamen;
+    }
+
     const est = (c.estado || '').toLowerCase();
-    if (c.retenido === true || est.includes('retenid') || est.includes('rojo') || est.includes('física')) {
+    if (c.retenidoPorAduana === true || est.includes('retenid') || est.includes('rojo') || est.includes('física')) {
       return 'ROJO';
     }
     if (est.includes('documental') || est.includes('amarillo') || est.includes('revisión')) {
@@ -70,47 +69,76 @@ export default function DashboardAduanas() {
     return 'VERDE';
   };
 
-  // Cambiar dictamen aduanero en PostgreSQL
-  const aplicarDictamenAduanero = async (contenedor, nuevoEstadoTexto) => {
+  // Texto que se muestra en la columna "Dictamen / Estado Actual"
+  const textoDictamen = (c) => {
+    const dictamen = String(c.dictamenAduanero || '').toUpperCase();
+    if (dictamen === 'ROJO') {
+      return c.motivoDictamen ? `Retenido en Aduana (${c.motivoDictamen})` : 'Retenido en Aduana';
+    }
+    if (dictamen === 'AMARILLO') return 'En Revisión Documental (Aduana)';
+    if (dictamen === 'VERDE') return 'Levante Libre Autorizado (Aduana)';
+    return limpiarEstado(c.estado);
+  };
+
+  // Emitir dictamen: se envía SOLO el dictamen y (si es rojo) el motivo de una lista cerrada.
+  // La pantalla se actualiza únicamente si el servidor confirma; si falla, se avisa y no se simula.
+  const aplicarDictamenAduanero = async (contenedor, dictamen, motivo = null) => {
     const idCont = contenedor.contenedorId || contenedor.id;
-    const sufijoPrecio = obtenerSufijoPrecio(contenedor.estado);
-    const estadoFinal = `${nuevoEstadoTexto}${sufijoPrecio}`;
 
     try {
-      await logisticaApi.put(`/contenedores/${idCont}/estado`, {
-        estado: estadoFinal,
-        muelleId: contenedor.muelleId || 1
+      const res = await logisticaApi.put(`/contenedores/${idCont}/dictamen`, {
+        dictamen,
+        ...(motivo ? { motivo } : {})
       });
-    } catch {
-      // El dictamen se refleja en pantalla y se sincroniza en la siguiente carga
+
+      const confirmado = res.data || {};
+
+      setContenedores(prev =>
+        prev.map(c =>
+          (c.contenedorId || c.id) === idCont
+            ? {
+                ...c,
+                dictamenAduanero: confirmado.dictamen || dictamen,
+                motivoDictamen: confirmado.motivo ?? null,
+                retenidoPorAduana: Boolean(confirmado.retenidoPorAduana)
+              }
+            : c
+        )
+      );
+
+      window.dispatchEvent(new Event('datosActualizados'));
+
+      setNotificacion({
+        codigo: contenedor.codigo,
+        dictamen:
+          dictamen === 'ROJO'
+            ? `Retenido en Aduana (${motivo})`
+            : dictamen === 'AMARILLO'
+            ? 'En Revisión Documental (Aduana)'
+            : 'Levante Libre Autorizado (Aduana)',
+        esRojo: dictamen === 'ROJO'
+      });
+
+      if (confirmado.sincronizadoAduana === false) {
+        notificar(
+          'El dictamen quedó guardado, pero no se pudo sincronizar con el servicio de Aduana. Vuelve a aplicarlo en unos minutos.',
+          'info'
+        );
+      }
+
+      return true;
+    } catch (error) {
+      notificar(mensajeError(error, 'No se pudo emitir el dictamen aduanero.'));
+      return false;
     }
-
-    setContenedores(prev =>
-      prev.map(c =>
-        (c.contenedorId || c.id) === idCont
-          ? { ...c, estado: estadoFinal, retenido: nuevoEstadoTexto.toLowerCase().includes('retenid') }
-          : c
-      )
-    );
-
-    window.dispatchEvent(new Event('datosActualizados'));
-
-    setNotificacion({
-      codigo: contenedor.codigo,
-      dictamen: nuevoEstadoTexto,
-      esRojo: nuevoEstadoTexto.toLowerCase().includes('retenid')
-    });
   };
 
   // Confirmar retención desde el modal con motivo específico
   const confirmarRetencionRoja = async (e) => {
     e.preventDefault();
     if (!modalRetencion) return;
-    await aplicarDictamenAduanero(
-      modalRetencion,
-      `Retenido en Aduana (${motivoRetencion})`
-    );
-    setModalRetencion(null);
+    const ok = await aplicarDictamenAduanero(modalRetencion, 'ROJO', motivoRetencion);
+    if (ok) setModalRetencion(null);
   };
 
   // Métricas en vivo del Semáforo Aduanero
@@ -296,7 +324,7 @@ export default function DashboardAduanas() {
                 contenedoresFiltrados.map((c) => {
                   const idCont = c.contenedorId || c.id;
                   const canal = obtenerColorSemaforo(c);
-                  const estadoLimpio = limpiarEstado(c.estado);
+                  const estadoLimpio = textoDictamen(c);
                   const sobrepesoAlerta = Number(c.peso || 0) > 20000;
 
                   return (
@@ -327,7 +355,7 @@ export default function DashboardAduanas() {
                           </span>
                         </div>
                         <span className="text-xs text-slate-400 block">
-                          {estadoLimpio.includes('TEUs') ? 'Lote Subasta (TEUs)' : `Carga ${c.tipo || 'Seca'}`}
+                          {limpiarEstado(c.estado).includes('TEUs') ? 'Lote Subasta (TEUs)' : `Carga ${c.tipo || 'Seca'}`}
                         </span>
                       </td>
 
@@ -368,7 +396,7 @@ export default function DashboardAduanas() {
                         <div className="flex items-center justify-end gap-2">
                           {canal !== 'VERDE' && (
                             <button
-                              onClick={() => aplicarDictamenAduanero(c, 'Levante Libre Autorizado (Aduana)')}
+                              onClick={() => aplicarDictamenAduanero(c, 'VERDE')}
                               className="px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-all cursor-pointer flex items-center gap-1 shadow-sm"
                               title="Liberar contenedor para salida en Puerto"
                             >
@@ -378,7 +406,7 @@ export default function DashboardAduanas() {
 
                           {canal !== 'AMARILLO' && (
                             <button
-                              onClick={() => aplicarDictamenAduanero(c, 'En Revisión Documental (Aduana)')}
+                              onClick={() => aplicarDictamenAduanero(c, 'AMARILLO')}
                               className="px-3 py-1.5 text-xs font-bold rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-400 hover:text-slate-950 border border-amber-500/30 transition-all cursor-pointer"
                               title="Solicitar revisión de documentos"
                             >

@@ -15,18 +15,15 @@ export default function DashboardPuerto() {
   const [busqueda, setBusqueda] = useState('');
   const [isLoading, setIsLoading] = useState(true);
 
-  const muellesDisponibles = [
-    'Muelle #1 (Grúa Pórtico A)',
-    'Muelle #2 (Grúa Pórtico B)',
-    'Muelle #3 (Terminal Granelera)',
-    'Patio Fiscal #4 (Zona Refrigerada)'
-  ];
+  // Catálogo real de muelles (id + nombre) que entrega el servidor
+  const [muelles, setMuelles] = useState([]);
 
   const cargarDatosPuerto = async () => {
     try {
-      const [resCont, resBuques] = await Promise.allSettled([
+      const [resCont, resBuques, resMuelles] = await Promise.allSettled([
         logisticaApi.get('/contenedores'),
-        logisticaApi.get('/buques')
+        logisticaApi.get('/buques'),
+        logisticaApi.get('/api/operaciones/muelles')
       ]);
 
       if (resCont.status === 'fulfilled' && Array.isArray(resCont.value.data)) {
@@ -34,6 +31,9 @@ export default function DashboardPuerto() {
       }
       if (resBuques.status === 'fulfilled' && Array.isArray(resBuques.value.data)) {
         setBuques(resBuques.value.data);
+      }
+      if (resMuelles.status === 'fulfilled' && Array.isArray(resMuelles.value.data)) {
+        setMuelles(resMuelles.value.data);
       }
       // La lista completa de usuarios está reservada para ADMIN.
     } catch {
@@ -95,6 +95,7 @@ export default function DashboardPuerto() {
     }
 
     // Clasificación del estado en terminal (en español)
+    // El dictamen oficial viene del servidor (c.retenidoPorAduana); el texto se mantiene por compatibilidad.
     const retenidoAduana =
       Boolean(c.retenidoPorAduana) ||
       estadoPrincipal.toLowerCase().includes('retenido') ||
@@ -103,10 +104,13 @@ export default function DashboardPuerto() {
     const despachadoSalida =
       estadoPrincipal.toLowerCase().includes('despachado') ||
       estadoPrincipal.toLowerCase().includes('salida autorizada') ||
-      estadoPrincipal.toLowerCase().includes('gate-out');
+      estadoPrincipal.toLowerCase().includes('gate-out') ||
+      estadoPrincipal.toLowerCase().includes('gate_out');
 
     // Traducción limpia si algún registro antiguo tenía "Gate-Out" o "Gate-In"
-    const estadoTraducido = estadoPrincipal
+    const estadoTraducido = (/^gate_out$/i.test(estadoPrincipal)
+      ? 'Despacho de Salida Autorizado (Levante)'
+      : estadoPrincipal)
       .replace(/Gate-Out Autorizado/gi, 'Despacho de Salida Autorizado')
       .replace(/Gate-Out/gi, 'Despacho de Salida')
       .replace(/Gate-In/gi, 'En Patio Portuario');
@@ -124,18 +128,27 @@ export default function DashboardPuerto() {
     };
   };
 
-  // Cambiar muelle asignado
-  const actualizarMuelle = async (contenedor, nuevoMuelle) => {
+  // Cambiar muelle asignado: solo se envía el ID del muelle; el servidor valida todo lo demás.
+  const actualizarMuelle = async (contenedor, muelleIdTexto) => {
+    const muelleId = Number(muelleIdTexto);
+    const muelle = muelles.find((m) => m.id === muelleId);
+    if (!muelle) return;
+
     try {
-      const actualizado = { ...contenedor, ubicacionActual: nuevoMuelle };
-      await logisticaApi.put(`/contenedores/${contenedor.id}`, actualizado);
-      setContenedores(prev => prev.map(item => (item.id === contenedor.id ? actualizado : item)));
+      await logisticaApi.put(`/contenedores/${contenedor.id}/muelle`, { muelleId });
+      setContenedores(prev =>
+        prev.map(item =>
+          item.id === contenedor.id
+            ? { ...item, muelleId: muelle.id, muelleNombre: muelle.nombre }
+            : item
+        )
+      );
     } catch (error) {
       notificar(mensajeError(error, 'No se pudo asignar el muelle.'));
     }
   };
 
-  // Registrar Ingreso a Patio (antes Gate-In)
+  // Registrar Ingreso a Patio (antes Gate-In). El estado nuevo lo calcula el servidor.
   const registrarIngresoPatio = async (contenedor) => {
     const info = obtenerDetallesContenedor(contenedor);
     if (info.retenidoAduana) {
@@ -143,24 +156,16 @@ export default function DashboardPuerto() {
       return;
     }
 
-    const nuevoEstado = info.valorPagado
-      ? `En Patio Portuario (Recepcionado) | ${info.valorPagado}`
-      : 'En Patio Portuario (Recepcionado)';
-
     try {
-      const actualizado = {
-        ...contenedor,
-        estado: nuevoEstado,
-        ubicacionActual: contenedor.ubicacionActual || muellesDisponibles[0]
-      };
-      await logisticaApi.put(`/contenedores/${contenedor.id}`, actualizado);
-      setContenedores(prev => prev.map(item => (item.id === contenedor.id ? actualizado : item)));
+      await logisticaApi.post(`/contenedores/${contenedor.id}/ingreso-patio`);
+      notificar('Contenedor recibido en patio.', 'exito');
+      await cargarDatosPuerto();
     } catch (error) {
       notificar(mensajeError(error, 'No se pudo registrar el ingreso a patio.'));
     }
   };
 
-  // Autorizar Despacho de Salida (antes Gate-Out)
+  // Autorizar Despacho de Salida (antes Gate-Out). El servidor verifica con Aduanas.
   const autorizarDespachoSalida = async (contenedor) => {
     const info = obtenerDetallesContenedor(contenedor);
     if (info.retenidoAduana) {
@@ -168,17 +173,10 @@ export default function DashboardPuerto() {
       return;
     }
 
-    const nuevoEstado = info.valorPagado
-      ? `Despacho de Salida Autorizado (Levante) | ${info.valorPagado}`
-      : 'Despacho de Salida Autorizado (Levante)';
-
     try {
-      const actualizado = {
-        ...contenedor,
-        estado: nuevoEstado
-      };
-      await logisticaApi.put(`/contenedores/${contenedor.id}`, actualizado);
-      setContenedores(prev => prev.map(item => (item.id === contenedor.id ? actualizado : item)));
+      await logisticaApi.post(`/api/operaciones/gate-out/${contenedor.id}`);
+      notificar('Despacho de salida autorizado.', 'exito');
+      await cargarDatosPuerto();
     } catch (error) {
       notificar(mensajeError(error, 'No se pudo autorizar la salida.'));
     }
@@ -480,13 +478,19 @@ export default function DashboardPuerto() {
                         <div className="flex items-center gap-1.5">
                           <MapPin size={14} className="text-blue-500 shrink-0" />
                           <select
-                            value={c.ubicacionActual || muellesDisponibles[0]}
+                            value={c.muelleId ?? ''}
                             onChange={(e) => actualizarMuelle(c, e.target.value)}
-                            className="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500 cursor-pointer"
+                            disabled={info.despachadoSalida || muelles.length === 0}
+                            className="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500 cursor-pointer disabled:opacity-50"
                           >
-                            {muellesDisponibles.map((m) => (
-                              <option key={m} value={m}>
-                                {m}
+                            {c.muelleId == null && (
+                              <option value="" disabled>
+                                {muelles.length === 0 ? 'Sin muelles' : 'Sin asignar'}
+                              </option>
+                            )}
+                            {muelles.map((m) => (
+                              <option key={m.id} value={m.id}>
+                                {m.nombre}
                               </option>
                             ))}
                           </select>

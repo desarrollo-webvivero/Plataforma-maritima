@@ -18,26 +18,21 @@ export default function Landing() {
   const [isLoading, setIsLoading] = useState(true);
   const [ultimaActualizacion, setUltimaActualizacion] = useState('');
 
-  // Cargar datos reales desde Spring Boot / PostgreSQL
+  // Cargar el resumen PÚBLICO (no requiere sesión) desde Spring Boot / PostgreSQL.
+  // El servidor solo devuelve datos mínimos: buques, subastas abiertas y total de contenedores.
   const cargarEstadoPortuario = async () => {
     try {
-      const [resBuques, resLic, resCont] = await Promise.allSettled([
-        logisticaApi.get('/buques'),
-        logisticaApi.get('/licitaciones'),
-        logisticaApi.get('/contenedores')
-      ]);
+      const res = await logisticaApi.get('/api/logistica/publico/resumen');
+      const datos = res.data || {};
 
-      if (resBuques.status === 'fulfilled' && Array.isArray(resBuques.value.data)) {
-        setBuques(resBuques.value.data);
+      if (Array.isArray(datos.buques)) {
+        setBuques(datos.buques);
       }
-
-      if (resLic.status === 'fulfilled' && Array.isArray(resLic.value.data)) {
-        const activas = resLic.value.data.filter(l => l.estado !== 'ADJUDICADA');
-        setLicitacionesActivas(activas);
+      if (Array.isArray(datos.subastasActivas)) {
+        setLicitacionesActivas(datos.subastasActivas);
       }
-
-      if (resCont.status === 'fulfilled' && Array.isArray(resCont.value.data)) {
-        setContenedoresTotal(resCont.value.data.length);
+      if (typeof datos.contenedoresTotal === 'number') {
+        setContenedoresTotal(datos.contenedoresTotal);
       }
 
       const ahora = new Date();
@@ -345,7 +340,7 @@ export default function Landing() {
                       const tieneEspacio = libres > 0;
 
                       return (
-                        <tr key={b.id} className="hover:bg-slate-700/30 transition-colors">
+                        <tr key={b.imo || b.nombre} className="hover:bg-slate-700/30 transition-colors">
                           <td className="py-4 px-5">
                             <div className="flex items-center gap-3">
                               <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${

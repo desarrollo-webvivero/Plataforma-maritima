@@ -11,7 +11,12 @@ export const logisticaApi = axios.create({
 });
 
 // Rutas que no necesitan sesión
-const RUTAS_PUBLICAS = ['/usuarios/login', '/usuarios/registro', '/api/logistica/ping'];
+const RUTAS_PUBLICAS = [
+  '/usuarios/login',
+  '/usuarios/registro',
+  '/api/logistica/ping',
+  '/api/logistica/publico' // resumen de la página de inicio (sin sesión)
+];
 const esPublica = (url = '') => RUTAS_PUBLICAS.some((r) => url.startsWith(r));
 
 logisticaApi.interceptors.request.use((config) => {

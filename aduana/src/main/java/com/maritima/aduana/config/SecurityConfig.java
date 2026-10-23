@@ -74,6 +74,12 @@ public class SecurityConfig {
                     "/api/aduanas/bloquear"
                 ).hasAnyRole("OFICIAL_ADUANAS", "ADMIN")
 
+                // Levantar una retención: mismos roles que para crearla.
+                .requestMatchers(
+                    HttpMethod.POST,
+                    "/api/aduanas/liberar"
+                ).hasAnyRole("OFICIAL_ADUANAS", "ADMIN")
+
                 // Solo el servicio Logística puede
                 // consultar bloqueos de contenedores.
                 .requestMatchers(
